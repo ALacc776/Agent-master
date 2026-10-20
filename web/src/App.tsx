@@ -52,7 +52,6 @@ function useKeyboard(chatRef: React.RefObject<HTMLTextAreaElement>) {
         a: () => {
           const sug = parseSuggestion(item?.suggestedAnswer ?? null);
           if (item && sug) api.answer(item.id, sug.answer);
-          else if (task?.status === 'done') api.accept(task.id);
         },
         y: () => item?.kind === 'permission' && api.answer(item.id, 'allow'),
         n: () => item?.kind === 'permission' && api.answer(item.id, 'deny'),

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.ts';
 import { pushToast, setState, useStore } from '../store.ts';
-import { Modal, modelLabel, ago } from '../ui.tsx';
+import { Modal, modelLabel, ago, WhenDone } from '../ui.tsx';
 import { MODELS, type SearchHit } from '../../../shared/types.ts';
 
 const close = () => setState({ modal: null });
@@ -20,10 +20,12 @@ export function NewTaskModal() {
   const buildProjectId = useStore((s) => s.buildProjectId);
   const [projectId, setProjectId] = useState<number | null>(projects.some((p) => p.id === buildProjectId) ? buildProjectId : (projects[0]?.id ?? null));
   const [model, setModel] = useState('auto');
+  const defaultOnDone = useStore((s) => s.onDone);
+  const [onDone, setOnDoneLocal] = useState(defaultOnDone);
 
   const create = async (start: boolean) => {
     if (!title.trim()) return pushToast('Give the task a title');
-    const { task, waiting } = await api.createTask({ title: title.trim(), brief, projectId, model, start });
+    const { task, waiting } = await api.createTask({ title: title.trim(), brief, projectId, model, onDone, start });
     pushToast(start ? (waiting ? `#${task.id}: ${waiting}` : `Started #${task.id}`) : `Queued #${task.id}`);
     close();
   };
@@ -59,6 +61,7 @@ export function NewTaskModal() {
             ))}
           </select>
         </div>
+        <WhenDone value={onDone} onChange={setOnDoneLocal} size="md" />
         <div className="flex justify-end gap-2 pt-1">
           <button className="btn-ghost" onClick={close}>
             Cancel

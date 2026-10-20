@@ -6,10 +6,11 @@ You talk to **the master** (a cheap, fast Haiku agent). It turns what you say in
 
 The dashboard has four columns:
 
-- **Needs you**: "Agent #3 wants permission: `git push`", "Agent #5 has a question: JWT or sessions?", stalled or looping agents, failures. Each card has a suggested answer from a cheap model, one-click buttons, and **Remember this answer** so you aren't asked again.
+- **Needs you**: in auto mode (the default), only pushes, deploys, deletions, real decisions and failures. Routine prompts are approved, routine questions are answered by a cheap model, and stuck or looping agents are nudged automatically. Each card has a suggested answer, one-click buttons, and **Remember this answer**.
 - **Running**: live status line ("Editing theme.ts", "Running npm test"), elapsed time, cost, warnings. Peek, pause or stop.
 - **Queue**: tasks waiting for you to press **▶ Start** (or **Start all**). Edit the brief, project, model or dependency. Drag to reorder.
-- **Review**: finished work with a summary, diff, and an automatic review. **Accept**, **Merge**, **Open PR**, **Ask for changes**, or queue a **Follow-up**.
+- **Review**: only what needs your eyes. Finished work merges into your project by itself; Review gets tasks you set to Review, anything the automatic review flagged, and anything that couldn't merge cleanly (with the reason). **Merge**, **Open PR**, **Ask for changes**, **Follow-up**, or **Dismiss**. A "Recently finished" list shows what landed.
+- **When done** (next to Build in): **Merge** (default), **Review** or **PR**, applied to the tasks that message creates. Or tell the master "let me review this one" / "open a PR for that".
 
 ## Setup
 
@@ -60,7 +61,7 @@ For development with hot reload: `npm run dev` (dashboard on http://localhost:51
 | Key | Action |
 |---|---|
 | `j` / `k` | Move between cards |
-| `a` | Accept the suggested answer (or accept a finished task) |
+| `a` | Accept the suggested answer |
 | `y` / `n` | Allow / deny a permission request |
 | `r` | Reply to the selected card |
 | `s` | Start the selected queued task |

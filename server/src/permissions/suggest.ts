@@ -58,3 +58,33 @@ Reply ONLY with JSON: {"index": <number or null>}`;
     return undefined;
   }
 }
+
+// Auto mode: answer an agent's questions the way the developer most likely would.
+// Returns null when a question is a genuine decision the developer should make.
+export async function autoAnswer(
+  taskId: number,
+  questions: { question: string; options: { label: string; description?: string }[] }[],
+): Promise<Record<string, string> | null> {
+  const task = repo.getTask(taskId);
+  const prefs = repo.listPreferences().map((p) => `- ${p.text}`).join('\n') || '(none)';
+  const prompt = `A coding agent asked the developer questions. The developer is in "auto mode": they want agents to decide routine things themselves.
+Task #${taskId}: ${task?.title ?? ''}
+Brief: ${(task?.brief ?? '').slice(0, 2000)}
+Developer preferences:
+${prefs}
+
+Questions:
+${questions.map((q, i) => `${i + 1}. ${q.question}\n   Options: ${q.options.map((o) => `"${o.label}"`).join(', ') || '(free text)'}`).join('\n')}
+
+Pick the best answer for each. Set "ask_developer": true ONLY if a question is a real product/business decision with no sensible default, or something irreversible, costly, or security-sensitive. Technical and style choices are NOT reasons to ask.
+Reply ONLY with JSON: {"ask_developer": false, "answers": ["<answer for 1>", "<answer for 2>"]}`;
+  try {
+    const { text, costUsd } = await oneShot(prompt, { model: settings().cheapModel, timeoutMs: 45_000 });
+    addSpend(taskId, costUsd);
+    const r = extractJson<{ ask_developer: boolean; answers: string[] }>(text);
+    if (!r || r.ask_developer || !Array.isArray(r.answers) || r.answers.length < questions.length) return null;
+    return Object.fromEntries(questions.map((q, i) => [q.question, String(r.answers[i])]));
+  } catch {
+    return null;
+  }
+}

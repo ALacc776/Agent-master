@@ -27,6 +27,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autoAllowSafeBash: true,
   stallMinutes: 10,
   turnWarning: 100,
+  autoMode: true,
+  defaultOnDone: 'merge',
   ntfyTopic: '',
   macNotifications: true,
   lanAccess: false,
@@ -65,6 +67,8 @@ function toTask(r: Row): Task {
     tokens: r.tokens,
     turns: r.turns ?? 0,
     modelReason: r.model_reason ?? null,
+    onDone: r.on_done ?? 'review',
+    outcome: r.outcome ?? null,
     statusLine: r.status_line,
     filesTouched: parse(r.files_touched, []),
     flags: parse(r.flags, []),
@@ -96,6 +100,8 @@ const TASK_COLUMNS: Record<string, string> = {
   tokens: 'tokens',
   turns: 'turns',
   modelReason: 'model_reason',
+  onDone: 'on_done',
+  outcome: 'outcome',
   statusLine: 'status_line',
   filesTouched: 'files_touched',
   flags: 'flags',
@@ -170,6 +176,7 @@ export class Repo {
     projectId: number | null;
     model: string;
     modelReason?: string | null;
+    onDone?: Task['onDone'];
     autoStart?: boolean;
     dependsOn?: number | null;
     createdBy: 'user' | 'master';
@@ -177,10 +184,10 @@ export class Repo {
     const pos = (this.db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM tasks').get() as Row).p;
     const res = this.db
       .prepare(
-        `INSERT INTO tasks (title, brief, project_id, model, model_reason, status, auto_start, depends_on, position, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (title, brief, project_id, model, model_reason, on_done, status, auto_start, depends_on, position, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
       )
-      .run(t.title, t.brief, t.projectId, t.model, t.modelReason ?? null, t.autoStart ? 1 : 0, t.dependsOn ?? null, pos, t.createdBy, Date.now());
+      .run(t.title, t.brief, t.projectId, t.model, t.modelReason ?? null, t.onDone ?? this.getSettings().defaultOnDone, t.autoStart ? 1 : 0, t.dependsOn ?? null, pos, t.createdBy, Date.now());
     const task = this.getTask(Number(res.lastInsertRowid))!;
     this.index('task', task.id, `#${task.id} ${task.title}\n${task.brief}`);
     return task;

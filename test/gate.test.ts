@@ -10,6 +10,7 @@ const { repo } = await import('../server/src/ctx.ts');
 const { createGate, answerInbox, pendingCount } = await import('../server/src/permissions/gate.ts');
 const { flagLongSession } = await import('../server/src/watchdog.ts');
 
+repo.updateSettings({ autoMode: false }); // these tests cover the ask-first behavior
 const cwd = '/repo/.master-worktrees/1-x';
 const signal = new AbortController().signal;
 const task = repo.createTask({ title: 't', brief: '', projectId: null, model: 'm', createdBy: 'user' });
@@ -83,4 +84,22 @@ test('long sessions raise one context warning per session', () => {
   assert.equal(items.length, 1);
   assert.equal(items[0].kind, 'context');
   assert.ok(repo.getTask(t.id)!.flags.includes('long'));
+});
+
+test('auto mode lets routine-but-unlisted commands through and still asks for publish', async () => {
+  repo.updateSettings({ autoMode: true });
+  try {
+    const r = await gate('Bash', { command: 'docker compose up -d' }, { signal } as any);
+    assert.equal(r.behavior, 'allow');
+    assert.equal(repo.openInbox().filter((i) => i.kind === 'permission').length, 0);
+
+    const pending = gate('Bash', { command: 'npm publish' }, { signal } as any);
+    await tick();
+    const item = repo.openInbox().find((i) => i.kind === 'permission');
+    assert.ok(item, 'publishing still reaches the developer');
+    answerInbox(item!.id, 'deny');
+    await pending;
+  } finally {
+    repo.updateSettings({ autoMode: false });
+  }
 });

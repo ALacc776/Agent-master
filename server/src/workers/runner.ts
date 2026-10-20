@@ -77,7 +77,7 @@ export class WorkerRunner {
   private error: string | null = null;
   cwd = '';
 
-  constructor(readonly taskId: number, private onExit: (runner: WorkerRunner, reason: ExitReason) => void) {}
+  constructor(readonly taskId: number, private onExit: (runner: WorkerRunner, reason: ExitReason, diff?: string) => void) {}
 
   get task(): Task {
     return repo.getTask(this.taskId)!;
@@ -285,21 +285,18 @@ export class WorkerRunner {
       }
     }
     const summary = await summarize(task, this.lastText, stat);
+    // Work that lands without the developer looking at it gets the automatic review first.
+    const verdict = task.onDone !== 'review' && settings().reviewerEnabled && diff ? await review(this.task, diff) : null;
     updateTask(task.id, {
-      status: 'done',
-      statusLine: 'Done',
+      statusLine: task.onDone === 'review' ? 'Done' : task.onDone === 'pr' ? 'Opening a pull request…' : 'Merging…',
       summary,
       diffStat: stat || null,
+      reviewVerdict: verdict,
       finishedAt: Date.now(),
       flags: [],
     });
     closeTaskInbox(task.id, ['stalled', 'loop', 'context']);
-    notify(`Agent #${task.id} finished`, task.title);
-    this.onExit(this, 'done');
-
-    if (settings().reviewerEnabled && diff) {
-      const verdict = await review(this.task, diff);
-      if (verdict) updateTask(task.id, { reviewVerdict: verdict });
-    }
+    // The manager decides where finished work goes (merge, PR or Review).
+    this.onExit(this, 'done', diff);
   }
 }

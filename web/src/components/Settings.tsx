@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { api } from '../api.ts';
 import { pushToast, setState, useStore } from '../store.ts';
-import { Modal, modelLabel } from '../ui.tsx';
+import { Modal, modelLabel, WhenDone } from '../ui.tsx';
 import { ACCENTS, setTheme, useTheme, type Appearance } from '../theme.ts';
 import { Segmented } from './TopBar.tsx';
 import { MODELS, type Settings } from '../../../shared/types.ts';
@@ -160,7 +160,16 @@ export function SettingsModal() {
         </Row>
       </Group>
 
-      <Group title="Agents can, without asking" footer="Push, merge, deploy, publish, rm -rf and edits outside the worktree always ask you.">
+      <Group title="Autonomy" footer="Pushes, deploys, publishing, rm -rf and edits outside an agent's own copy always ask you, even in auto mode.">
+        <Row label="Auto mode" hint="Agents decide routine things themselves. Only real decisions and risky actions reach you">
+          {toggle('autoMode', 'Auto mode')}
+        </Row>
+        <Row label="When work is done" hint="Default for new tasks; you can change it per message">
+          <WhenDone value={s.defaultOnDone} onChange={(defaultOnDone) => save({ defaultOnDone })} />
+        </Row>
+      </Group>
+
+      <Group title="When auto mode is off, agents can still">
         <Row label="Edit files in their own copy">{toggle('autoAllowEdits', 'Edit files without asking')}</Row>
         <Row label="Run safe commands" hint="Tests, builds, git status and commit, local installs">
           {toggle('autoAllowSafeBash', 'Run safe commands without asking')}

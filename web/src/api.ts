@@ -1,5 +1,5 @@
 import { apply, pushToast, setState } from './store.ts';
-import type { DirListing, Project, SearchHit, Settings, Task, TaskEvent } from '../../shared/types.ts';
+import type { DirListing, OnDone, Project, SearchHit, Settings, Task, TaskEvent } from '../../shared/types.ts';
 
 // Access token for phone/LAN use: pass ?token=… once, it's remembered.
 function token(): string {
@@ -27,9 +27,9 @@ async function call<T = any>(method: string, path: string, body?: unknown): Prom
 }
 
 export const api = {
-  sendMaster: (text: string, projectId: number | null) => call('POST', '/api/master/message', { text, projectId }),
+  sendMaster: (text: string, projectId: number | null, onDone: OnDone) => call('POST', '/api/master/message', { text, projectId, onDone }),
   resetMaster: () => call('POST', '/api/master/reset'),
-  createTask: (t: { title: string; brief: string; projectId: number | null; model: string; start?: boolean; dependsOn?: number | null }) =>
+  createTask: (t: { title: string; brief: string; projectId: number | null; model: string; onDone?: OnDone; start?: boolean; dependsOn?: number | null }) =>
     call<{ task: Task; waiting: string | null }>('POST', '/api/tasks', t),
   updateTask: (id: number, patch: Partial<Task>) => call('PATCH', `/api/tasks/${id}`, patch),
   deleteTask: (id: number) => call('DELETE', `/api/tasks/${id}`),

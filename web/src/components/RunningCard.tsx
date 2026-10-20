@@ -3,7 +3,7 @@ import { pushToast, setState, useStore } from '../store.ts';
 import { ago, modelLabel, TurnsChip, usd, useNow, useProjectName } from '../ui.tsx';
 import type { Task } from '../../../shared/types.ts';
 
-const FLAG_TEXT: Record<string, string> = { stalled: 'No activity', looping: 'Looping?', collision: 'File overlap' };
+const FLAG_TEXT: Record<string, string> = { stalled: 'No activity', looping: 'Looping?', collision: 'Same files as another agent' };
 
 export function RunningCard({ task }: { task: Task }) {
   const key = `task:${task.id}`;
@@ -40,6 +40,7 @@ export function RunningCard({ task }: { task: Task }) {
         <TurnsChip turns={task.turns} limit={limit} />
         <span className="chip tabular-nums">{usd(task.costUsd)}</span>
         {task.filesTouched.length > 0 && <span className="chip">{task.filesTouched.length} files</span>}
+        {task.onDone !== 'merge' && <span className="chip">{task.onDone === 'pr' ? 'Opens a PR' : 'You review'}</span>}
         {task.flags
           .filter((f) => FLAG_TEXT[f])
           .map((f) => (

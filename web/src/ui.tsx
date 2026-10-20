@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useStore } from './store.ts';
-import type { InboxItem, Task } from '../../shared/types.ts';
+import type { InboxItem, OnDone, Task } from '../../shared/types.ts';
 
 export const ACTIVE = ['running', 'needs_input', 'stalled'];
 
@@ -84,6 +84,7 @@ export interface BoardData {
   running: Task[];
   queue: Task[];
   done: Task[];
+  finished: Task[]; // landed on their own recently (merged, PR opened, nothing to change)
   order: string[]; // keyboard navigation order
 }
 
@@ -102,13 +103,17 @@ export function useBoard(): BoardData {
       .filter((t) => t.status === 'done' || t.status === 'failed')
       .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0));
     void byId;
+    const finished = tasks
+      .filter((t) => t.status === 'accepted' && (t.finishedAt ?? 0) > Date.now() - 864e5)
+      .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))
+      .slice(0, 8);
     const order = [
       ...needs.map((i) => `inbox:${i.id}`),
       ...running.map((t) => `task:${t.id}`),
       ...queue.map((t) => `task:${t.id}`),
       ...done.map((t) => `task:${t.id}`),
     ];
-    return { needs, running, queue, done, order };
+    return { needs, running, queue, done, finished, order };
   }, [tasks, inbox]);
 }
 
@@ -139,5 +144,36 @@ export function TurnsChip({ turns, limit }: { turns: number; limit: number }) {
     >
       {turns} turns
     </span>
+  );
+}
+
+export const ON_DONE_OPTIONS: { id: OnDone; label: string; title: string }[] = [
+  { id: 'merge', label: 'Merge', title: 'Merge into your project automatically when it finishes' },
+  { id: 'review', label: 'Review', title: 'Hold it in Review so you can look first' },
+  { id: 'pr', label: 'PR', title: 'Open a GitHub pull request when it finishes' },
+];
+
+export function WhenDone({ value, onChange, size = 'sm' }: { value: OnDone; onChange: (v: OnDone) => void; size?: 'sm' | 'md' }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[12.5px] text-faint">When done</span>
+      <div role="radiogroup" aria-label="When done" className="inline-flex rounded-[8px] bg-raised/70 p-[2px]">
+        {ON_DONE_OPTIONS.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            role="radio"
+            aria-checked={value === o.id}
+            title={o.title}
+            onClick={() => onChange(o.id)}
+            className={`rounded-[6px] font-medium transition-colors ${size === 'md' ? 'px-3 py-1 text-[13px]' : 'px-2 py-[1px] text-[12px]'} ${
+              value === o.id ? 'bg-panel text-ink shadow-card' : 'text-muted hover:text-ink'
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

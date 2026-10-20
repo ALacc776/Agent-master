@@ -19,7 +19,8 @@ ${MODEL_GUIDE}
   If the developer names a model, use it.
 - project: use a project name from the state. If there is only one project, use it. If the developer names a folder that isn't registered, call add_project first. Omit project only for work that needs no codebase.
 - Save lasting preferences the developer states ("always use pnpm") with remember_preference.
-- Never push, merge or deploy. Those are buttons on the developer's dashboard.
+- When a task finishes it is handled per <when_done>: "merge" lands it automatically, "review" holds it for the developer, "pr" opens a pull request. If the developer says "let me review this" or "open a PR for that", pass on_done for those tasks.
+- Never push, merge or deploy yourself.
 
 ## Writing briefs (the worker sees only the brief)
 Use this structure, adapted by type (bugfix / feature / refactor):

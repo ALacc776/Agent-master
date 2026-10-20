@@ -60,6 +60,8 @@ export function DoneCard({ task }: { task: Task }) {
         {failed && <span className="chip bg-danger/15 text-danger">Failed</span>}
       </div>
 
+      {task.outcome && <p className={`mt-2 text-[12.5px] font-medium ${failed ? 'text-danger' : 'text-signal'}`}>{task.outcome}</p>}
+
       {task.summary ? (
         <>
           <Rich text={task.summary} className={`mt-2 text-[13px] text-ink/85 ${expanded ? '' : 'line-clamp-4'}`} />
@@ -82,13 +84,8 @@ export function DoneCard({ task }: { task: Task }) {
       {task.reviewVerdict && <ReviewNote verdict={task.reviewVerdict} />}
 
       <div className="mt-2.5 flex flex-wrap gap-1">
-        {!failed && (
-          <button className="btn-done" disabled={busy} onClick={() => act(() => api.accept(task.id))} title="Remove the worktree, keep the branch">
-            Accept
-          </button>
-        )}
         {task.branch && !failed && (
-          <button className="btn-line" disabled={busy} onClick={() => act(() => api.merge(task.id))} title={`Merge ${task.branch} into ${task.baseBranch}`}>
+          <button className="btn-done" disabled={busy} onClick={() => act(() => api.merge(task.id))} title={`Merge ${task.branch} into ${task.baseBranch}`}>
             Merge
           </button>
         )}
@@ -118,9 +115,13 @@ export function DoneCard({ task }: { task: Task }) {
         <button className="btn-ghost" onClick={() => setMode(mode === 'followup' ? null : 'followup')}>
           Follow-up
         </button>
-        {failed && (
+        {failed ? (
           <button className="btn-danger ml-auto" onClick={() => api.deleteTask(task.id)}>
             Delete
+          </button>
+        ) : (
+          <button className="btn-ghost ml-auto" disabled={busy} onClick={() => act(() => api.accept(task.id))} title={task.branch ? `Close without merging. The branch ${task.branch} is kept` : 'Close this task'}>
+            {task.branch ? 'Dismiss' : 'Done'}
           </button>
         )}
       </div>

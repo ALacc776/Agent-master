@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { Snapshot, TaskEvent, WsMessage } from '../../shared/types.ts';
+import type { OnDone, Snapshot, TaskEvent, WsMessage } from '../../shared/types.ts';
 
 export interface State extends Snapshot {
   connected: boolean;
@@ -10,6 +10,7 @@ export interface State extends Snapshot {
   modal: null | 'settings' | 'search' | 'new' | { diff: number } | { folder: 'settings' | 'chat' };
   buildProjectId: number | null; // project the chat is pointed at
   view: View;
+  onDone: OnDone; // "When done" choice for new messages and tasks
   replyTo: string | null; // card key whose reply box is open
 }
 
@@ -33,7 +34,26 @@ let state: State = {
   replyTo: null,
   buildProjectId: readBuildProject(),
   view: readView(),
+  onDone: readOnDone(),
 };
+
+function readOnDone(): OnDone {
+  try {
+    const v = localStorage.getItem('masterOnDone');
+    return v === 'review' || v === 'pr' ? v : 'merge';
+  } catch {
+    return 'merge';
+  }
+}
+
+export function setOnDone(onDone: OnDone) {
+  setState({ onDone });
+  try {
+    localStorage.setItem('masterOnDone', onDone);
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 export type View = 'board' | 'split' | 'master';
 

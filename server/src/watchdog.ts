@@ -5,6 +5,14 @@ export { LoopDetector } from './loop.ts';
 // Flags stuck workers: stalled (no activity), looping (same tool call repeatedly), and
 // collisions (two running tasks touching the same files in one project).
 
+// In auto mode the watchdog fixes things itself instead of asking. The manager registers these
+// (it owns the workers; importing it here would be circular).
+let auto: { nudge: (taskId: number, text: string) => void; fresh: (taskId: number) => void } | null = null;
+export function setAutoHandlers(h: NonNullable<typeof auto>) {
+  auto = h;
+}
+const NUDGE = 'Status check: you seem stuck or are repeating the same step. Step back, say briefly what is blocking you, and try a different approach. If the task is done, wrap up with your summary.';
+
 function addFlag(task: Task, flag: string): boolean {
   if (task.flags.includes(flag)) return false;
   updateTask(task.id, { flags: [...task.flags, flag] });
@@ -20,6 +28,12 @@ export function clearFlag(taskId: number, flag: string) {
 export function flagLoop(taskId: number, what: string) {
   const task = repo.getTask(taskId);
   if (!task || !addFlag(task, 'looping')) return;
+  if (settings().autoMode && auto && !task.flags.includes('nudged')) {
+    addFlag(repo.getTask(taskId)!, 'nudged');
+    auto.nudge(taskId, NUDGE);
+    setTimeout(() => clearFlag(taskId, 'looping'), 1000);
+    return;
+  }
   addInbox({ taskId, kind: 'loop', title: `may be looping: repeated "${what}" 3× in a row`, detail: { message: what } });
 }
 
@@ -27,6 +41,10 @@ export function flagLoop(taskId: number, what: string) {
 export function flagLongSession(taskId: number, turns: number) {
   const task = repo.getTask(taskId);
   if (!task || !addFlag(task, 'long')) return;
+  if (settings().autoMode && auto) {
+    auto.fresh(taskId);
+    return;
+  }
   addInbox({
     taskId,
     kind: 'context',
@@ -51,6 +69,7 @@ export function checkCollision(taskId: number) {
     const overlap = overlappingFiles(task, other);
     if (overlap.length) {
       addFlag(task, 'collision');
+      if (settings().autoMode) return; // shown as a chip on the card; merges that conflict land in Review anyway
       addInbox({
         taskId,
         kind: 'collision',
@@ -70,6 +89,11 @@ export function startWatchdog() {
       const last = task.lastEventAt ?? task.startedAt ?? Date.now();
       if (Date.now() - last > limit && addFlag(task, 'stalled')) {
         updateTask(task.id, { status: 'stalled' });
+        if (settings().autoMode && auto && !task.flags.includes('nudged')) {
+          addFlag(repo.getTask(task.id)!, 'nudged');
+          auto.nudge(task.id, NUDGE);
+          continue;
+        }
         addInbox({
           taskId: task.id,
           kind: 'stalled',

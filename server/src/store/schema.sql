@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   tokens INTEGER NOT NULL DEFAULT 0,
   turns INTEGER NOT NULL DEFAULT 0,
   model_reason TEXT,
+  on_done TEXT NOT NULL DEFAULT 'merge',
+  outcome TEXT,
   status_line TEXT NOT NULL DEFAULT '',
   files_touched TEXT NOT NULL DEFAULT '[]',
   flags TEXT NOT NULL DEFAULT '[]',

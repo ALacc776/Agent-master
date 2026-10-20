@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.ts';
-import { getState, setBuildProject, setState, setView, useStore } from '../store.ts';
-import { Rich, useBoard } from '../ui.tsx';
+import { getState, setBuildProject, setOnDone, setState, setView, useStore } from '../store.ts';
+import { Rich, useBoard, WhenDone } from '../ui.tsx';
 import type { MasterMessage } from '../../../shared/types.ts';
 
 // Browser speech recognition (Chrome/Safari/Edge).
@@ -9,7 +9,7 @@ const SpeechRecognition: any = (window as any).SpeechRecognition ?? (window as a
 
 function send(text: string) {
   const s = getState();
-  void api.sendMaster(text, s.projects.some((p) => p.id === s.buildProjectId) ? s.buildProjectId : null);
+  void api.sendMaster(text, s.projects.some((p) => p.id === s.buildProjectId) ? s.buildProjectId : null, s.onDone);
 }
 
 function Message({ m }: { m: MasterMessage }) {
@@ -83,6 +83,16 @@ function BuildIn() {
         ))}
         <option value="__choose">Choose a folder…</option>
       </select>
+    </div>
+  );
+}
+
+function Options({ className = '' }: { className?: string }) {
+  const onDone = useStore((s) => s.onDone);
+  return (
+    <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 ${className}`}>
+      <BuildIn />
+      <WhenDone value={onDone} onChange={setOnDone} />
     </div>
   );
 }
@@ -199,7 +209,7 @@ export function MasterPanel({ inputRef }: { inputRef: React.RefObject<HTMLTextAr
       </header>
       <Thread className="min-h-0 flex-1 px-4 pb-3" />
       <div className="shrink-0 space-y-1.5 p-3 pt-0">
-        <BuildIn />
+        <Options />
         <Composer inputRef={inputRef} />
       </div>
     </aside>
@@ -227,9 +237,9 @@ export function MasterFull({ inputRef }: { inputRef: React.RefObject<HTMLTextAre
       </div>
       <Thread className="mx-auto min-h-0 w-full max-w-[720px] flex-1 px-5 py-6" />
       <div className="mx-auto w-full max-w-[720px] shrink-0 space-y-1.5 px-5 pb-5">
-        <div className="flex items-center justify-between">
-          <BuildIn />
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <Options />
+          <div className="flex shrink-0 items-center gap-2">
             <Status />
             <button className="btn-ghost px-2 text-[12px]" onClick={resetChat}>
               New chat
@@ -276,8 +286,8 @@ export function MasterBar({ inputRef }: { inputRef: React.RefObject<HTMLTextArea
           <Composer inputRef={inputRef} compact onFocus={() => setOpen(true)} />
         </div>
         <div className="mt-1.5 flex justify-center">
-          <div className="glass rounded-full px-2.5 py-0.5 shadow-card">
-            <BuildIn />
+          <div className="glass rounded-full px-3 py-1 shadow-card">
+            <Options />
           </div>
         </div>
       </div>

@@ -3,8 +3,11 @@ import { bus } from '../bus.ts';
 import { today } from '../store/repo.ts';
 import { BLOCK_TEXT, blockReason, pickStartable, ACTIVE } from '../scheduler.ts';
 import { WorkerRunner, type ExitReason } from './runner.ts';
+import { setAutoHandlers } from '../watchdog.ts';
 import { mergeBranch, openPullRequest, removeWorktree } from './worktree.ts';
 import { oneShot } from '../llm.ts';
+import { notify } from '../notify.ts';
+import { review } from './summarize.ts';
 import type { Task } from '../../../shared/types.ts';
 
 // Owns the running workers and applies the scheduler.
@@ -43,12 +46,77 @@ function run(task: Task) {
   void runner.start(prompt, resume);
 }
 
-function onExit(runner: WorkerRunner, _reason: ExitReason) {
+function onExit(runner: WorkerRunner, reason: ExitReason, diff?: string) {
   runners.delete(runner.taskId);
   if (pendingPrompts.has(runner.taskId)) {
     updateTask(runner.taskId, { status: 'queued', autoStart: true });
+  } else if (reason === 'done') {
+    void land(runner.taskId, diff ?? '').catch((err) => holdForReview(runner.taskId, `Couldn't finish automatically: ${(err as Error).message}`));
   }
   tick();
+}
+
+// Merges into one repo happen one at a time.
+const projectLocks = new Map<number, Promise<unknown>>();
+function withProjectLock<T>(projectId: number, fn: () => Promise<T>): Promise<T> {
+  const prev = projectLocks.get(projectId) ?? Promise.resolve();
+  const next = prev.catch(() => {}).then(fn);
+  projectLocks.set(projectId, next);
+  return next;
+}
+
+function holdForReview(id: number, outcome: string) {
+  const task = updateTask(id, { status: 'done', statusLine: 'Needs your review', outcome });
+  notify(`Agent #${id} needs your review`, `${task.title}: ${outcome}`);
+}
+
+function finishQuietly(id: number, outcome: string) {
+  const task = updateTask(id, { status: 'accepted', statusLine: 'Done', outcome, worktree: null });
+  closeTaskInbox(id);
+  notify(`Agent #${id} done`, `${task.title}: ${outcome}`);
+}
+
+/** Decide where finished work goes: merged in, opened as a PR, or held in Review. */
+async function land(id: number, diff: string) {
+  const task = repo.getTask(id)!;
+  const project = repo.getProject(task.projectId);
+
+  if (task.onDone === 'review') {
+    holdForReview(id, 'You asked to review this one');
+    if (settings().reviewerEnabled && diff) {
+      const verdict = await review(task, diff);
+      if (verdict) updateTask(id, { reviewVerdict: verdict });
+    }
+    return;
+  }
+  if (task.reviewVerdict?.startsWith('⚠️')) return holdForReview(id, 'Held back: the automatic review found concerns');
+
+  // No git branch: the agent worked in place (non-git folder) or in a scratch folder.
+  if (!project?.isGit || !task.branch || !task.baseBranch) {
+    if (task.onDone === 'pr') return holdForReview(id, "Not a git repo, so there's no PR to open. The changes are in place");
+    return finishQuietly(id, project ? 'Changes made in place' : 'Finished');
+  }
+
+  if (!diff.trim()) {
+    if (task.worktree) await removeWorktree(project.path, task.worktree, task.branch, true);
+    return finishQuietly(id, 'Finished with no code changes');
+  }
+
+  if (task.onDone === 'pr') {
+    try {
+      const url = await openPr(id);
+      if (task.worktree) await removeWorktree(project.path, task.worktree);
+      return finishQuietly(id, `Pull request opened: ${url}`);
+    } catch (err) {
+      return holdForReview(id, `Couldn't open a pull request: ${(err as Error).message.split('\n')[0]}`);
+    }
+  }
+
+  try {
+    await withProjectLock(project.id, () => mergeTask(id));
+  } catch (err) {
+    holdForReview(id, `Couldn't merge automatically: ${(err as Error).message.split('\n')[0]}`);
+  }
 }
 
 let ticking = false;
@@ -176,7 +244,7 @@ export async function acceptTask(id: number) {
   const task = repo.getTask(id)!;
   const project = repo.getProject(task.projectId);
   if (project?.isGit && task.worktree) await removeWorktree(project.path, task.worktree);
-  updateTask(id, { status: 'accepted', worktree: null });
+  updateTask(id, { status: 'accepted', worktree: null, outcome: task.branch ? `Dismissed; branch ${task.branch} kept` : 'Done' });
   closeTaskInbox(id);
   tick();
 }
@@ -188,8 +256,13 @@ export async function mergeTask(id: number) {
   await mergeBranch(project.path, task.branch, task.baseBranch, task.title);
   if (task.worktree) await removeWorktree(project.path, task.worktree, task.branch, true);
   addEvent(id, 'system', `Merged ${task.branch} into ${task.baseBranch}`);
-  updateTask(id, { status: 'accepted', worktree: null });
+  // Follow-ups that were going to build on this branch now build on what it merged into.
+  for (const t of repo.listTasks()) {
+    if (t.baseBranch === task.branch && !t.worktree) updateTask(t.id, { baseBranch: task.baseBranch });
+  }
+  const done = updateTask(id, { status: 'accepted', statusLine: 'Done', worktree: null, outcome: `Merged into ${task.baseBranch}` });
   closeTaskInbox(id);
+  notify(`Agent #${id} merged`, `${done.title} → ${task.baseBranch}`);
   tick();
 }
 
@@ -242,6 +315,11 @@ export function recoverOnBoot() {
 
 onTaskChange((task, prev) => {
   if (prev && prev.status !== task.status && (task.status === 'done' || task.status === 'accepted')) tick();
+});
+
+setAutoHandlers({
+  nudge: (taskId, text) => void messageTask(taskId, text),
+  fresh: (taskId) => void freshSession(taskId),
 });
 
 setInterval(tick, 10_000).unref();

@@ -88,6 +88,7 @@ export function QueueCard({ task, onDragStart }: { task: Task; onDragStart: (id:
         {!open && <span className="chip">{projects.find((p) => p.id === task.projectId)?.name ?? 'No project'}</span>}
         {!open && <span className="chip">{modelLabel(task.model)}</span>}
         {dep && !open && <span className="chip">After #{dep.id}</span>}
+        {task.onDone !== 'merge' && <span className="chip">{task.onDone === 'pr' ? 'Opens a PR' : 'You review'}</span>}
         {task.createdBy === 'master' && <span className="chip">From master</span>}
         {paused && <span className="chip text-signal">Paused</span>}
         {task.status === 'stopped' && <span className="chip">Stopped</span>}

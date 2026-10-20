@@ -8,6 +8,7 @@ import { addSpend, repo, settings } from '../ctx.ts';
 import { MASTER_SYSTEM, stateBlock } from './prompt.ts';
 import { explainError } from '../llm.ts';
 import { createMasterTools, MASTER_TOOL_NAMES } from './tools.ts';
+import type { OnDone } from '../../../shared/types.ts';
 
 // One long-lived, cheap-model session. Messages are pushed into its input stream as they arrive,
 // so the developer can keep typing while it works; the SDK runs them in order.
@@ -17,6 +18,12 @@ class MasterAgent {
   private q: Query | null = null;
   private lastCost = 0;
   private queued = 0;
+  // "When done" choice for each message still being handled, oldest first; tools use the head.
+  private turnOnDone: OnDone[] = [];
+
+  get currentOnDone(): OnDone {
+    return this.turnOnDone[0] ?? settings().defaultOnDone;
+  }
 
   private publishState() {
     bus.publish({ type: 'master_state', busy: this.queued > 0, queue: Math.max(0, this.queued - 1) });
@@ -43,7 +50,7 @@ class MasterAgent {
         model: settings().masterModel,
         systemPrompt: MASTER_SYSTEM,
         tools: [],
-        mcpServers: { master: createMasterTools() },
+        mcpServers: { master: createMasterTools(() => this.currentOnDone) },
         // Built-in tools are off (tools: []), so the master can only call its own tools, all pre-approved here.
         allowedTools: MASTER_TOOL_NAMES,
         settingSources: [],
@@ -71,6 +78,7 @@ class MasterAgent {
           addSpend(null, Math.max(0, cost - this.lastCost));
           this.lastCost = cost;
           this.queued = msg.queued_turn_count ?? Math.max(0, this.queued - 1);
+          this.turnOnDone = this.queued > 0 ? this.turnOnDone.slice(-this.queued) : [];
           if (msg.is_error) {
             const why = msg.subtype === 'success' ? msg.result : msg.subtype;
             bus.publish({ type: 'master_message', data: repo.addMasterMessage('system', `Master hit an error: ${explainError(why)}`) });
@@ -89,19 +97,22 @@ class MasterAgent {
       if (this.q === q) {
         this.q = null;
         this.queued = 0;
+        this.turnOnDone = [];
         this.publishState();
       }
     }
   }
 
-  send(text: string, projectId: number | null = null) {
+  send(text: string, projectId: number | null = null, onDone: OnDone | null = null) {
+    this.turnOnDone.push(onDone ?? settings().defaultOnDone);
     bus.publish({ type: 'master_message', data: repo.addMasterMessage('user', text) });
     this.ensureSession();
     this.queued++;
     this.publishState();
     const project = repo.getProject(projectId);
     const focus = project ? `\n<selected_project>${project.name} (${project.path}). Use it for new tasks unless the developer names another project.</selected_project>` : '';
-    this.channel!.push(`${stateBlock()}${focus}\n\n${text}`);
+    const when = `\n<when_done>${this.turnOnDone.at(-1)}</when_done>`;
+    this.channel!.push(`${stateBlock()}${focus}${when}\n\n${text}`);
   }
 
   async reset() {
@@ -110,6 +121,7 @@ class MasterAgent {
     this.q?.close();
     this.q = null;
     this.queued = 0;
+    this.turnOnDone = [];
     this.publishState();
   }
 }

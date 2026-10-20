@@ -2,7 +2,7 @@ import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sd
 import { addEvent, addInbox, repo, settings, updateInbox } from '../ctx.ts';
 import { classify, describeTool } from './policy.ts';
 import { derivePattern, exactQuestionRule, matchPermissionRule } from './rules.ts';
-import { fuzzyQuestionRule } from './suggest.ts';
+import { autoAnswer, fuzzyQuestionRule } from './suggest.ts';
 import type { InboxItem } from '../../../shared/types.ts';
 
 // The Needs-You engine. A worker's canUseTool promise stays pending until the user answers
@@ -100,6 +100,15 @@ export function createGate(taskId: number, cwd: string, onPendingChange: () => v
         addEvent(taskId, 'permission', `Auto-answered from remembered rules: ${JSON.stringify(answers)}`);
         return { behavior: 'allow', updatedInput: { ...input, answers } };
       }
+      // Auto mode: the cheap model answers routine questions; only real decisions reach the developer.
+      if (settings().autoMode && questions.length) {
+        const auto = await autoAnswer(taskId, questions.filter((q) => !answers[q.question]));
+        if (auto) {
+          Object.assign(answers, auto);
+          addEvent(taskId, 'permission', `Auto mode answered: ${Object.entries(auto).map(([q, a]) => `${q} → ${a}`).join('; ')}`);
+          return { behavior: 'allow', updatedInput: { ...input, answers } };
+        }
+      }
       const item = addInbox({
         taskId,
         kind: 'question',
@@ -128,6 +137,8 @@ export function createGate(taskId: number, cwd: string, onPendingChange: () => v
       return { behavior: 'deny', message: rule.answer ? `The user says: ${rule.answer}` : 'The user has a standing rule denying this. Do not retry; find another way or finish without it.' };
     }
     if (verdict.decision === 'allow') return { behavior: 'allow', updatedInput: input };
+    // Auto mode: anything not on the always-ask list goes ahead.
+    if (verdict.decision === 'ask' && s.autoMode) return { behavior: 'allow', updatedInput: input };
     if (rule?.decision === 'allow' && verdict.decision === 'ask') {
       addEvent(taskId, 'permission', `Auto-allowed by rule "${rule.pattern}": ${describeTool(toolName, input)}`);
       return { behavior: 'allow', updatedInput: input };

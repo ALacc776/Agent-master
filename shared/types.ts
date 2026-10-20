@@ -12,6 +12,9 @@ export type TaskStatus =
 
 export type CreatedBy = 'user' | 'master';
 
+// What happens when a task finishes: merge it in, hold it for review, or open a pull request.
+export type OnDone = 'merge' | 'review' | 'pr';
+
 export interface Project {
   id: number;
   name: string;
@@ -37,6 +40,8 @@ export interface Task {
   tokens: number;
   turns: number; // model turns in the current session
   modelReason: string | null;
+  onDone: OnDone;
+  outcome: string | null; // e.g. "Merged into main", a PR URL, or why it needs review
   statusLine: string;
   filesTouched: string[];
   flags: string[]; // 'stalled' | 'looping' | 'collision'
@@ -129,6 +134,8 @@ export interface Settings {
   autoAllowSafeBash: boolean;
   stallMinutes: number;
   turnWarning: number;
+  autoMode: boolean;
+  defaultOnDone: OnDone;
   ntfyTopic: string;
   macNotifications: boolean;
   lanAccess: boolean;

@@ -33,7 +33,7 @@ import {
   stopTask,
   tick,
 } from './workers/manager.ts';
-import type { Settings, Snapshot, Task } from '../../shared/types.ts';
+import type { OnDone, Settings, Snapshot, Task } from '../../shared/types.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 4545);
@@ -95,8 +95,8 @@ app.get('/api/snapshot', async () => snapshot());
 
 // ----- master
 app.post('/api/master/message', async (req) => {
-  const { text, projectId } = body<{ text: string; projectId?: number | null }>(req);
-  if (text?.trim()) master.send(text.trim(), projectId ?? null);
+  const { text, projectId, onDone } = body<{ text: string; projectId?: number | null; onDone?: OnDone }>(req);
+  if (text?.trim()) master.send(text.trim(), projectId ?? null, onDone ?? null);
   return { ok: true };
 });
 app.post('/api/master/reset', async () => {
@@ -121,6 +121,7 @@ app.post('/api/tasks', async (req) => {
     projectId: b.projectId ?? null,
     model,
     modelReason,
+    onDone: b.onDone,
     dependsOn: b.dependsOn ?? null,
     createdBy: 'user',
   });
@@ -130,7 +131,7 @@ app.post('/api/tasks', async (req) => {
 });
 app.patch('/api/tasks/:id', async (req) => {
   const b = body<Partial<Task>>(req);
-  const allowed: (keyof Task)[] = ['title', 'brief', 'projectId', 'model', 'dependsOn', 'position', 'autoStart'];
+  const allowed: (keyof Task)[] = ['title', 'brief', 'projectId', 'model', 'dependsOn', 'position', 'autoStart', 'onDone'];
   const patch = Object.fromEntries(Object.entries(b).filter(([k]) => allowed.includes(k as keyof Task)));
   const task = repo.updateTask(id(req), patch);
   publishTask(task);

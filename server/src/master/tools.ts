@@ -6,6 +6,7 @@ import { answerItem } from '../inbox.ts';
 import { addProjectFromPath } from '../projects.ts';
 import { freshSession, messageTask, startTask, stopTask } from '../workers/manager.ts';
 import { modelId } from '../llm.ts';
+import type { OnDone } from '../../../shared/types.ts';
 
 // The master's only tools. Each returns immediately so the chat never blocks on workers.
 
@@ -31,7 +32,7 @@ export const MASTER_TOOL_NAMES = [
   'add_project',
 ].map((n) => `mcp__master__${n}`);
 
-export function createMasterTools() {
+export function createMasterTools(currentOnDone: () => OnDone) {
   return createSdkMcpServer({
     name: 'master',
     version: '1.0.0',
@@ -47,6 +48,10 @@ export function createMasterTools() {
           model_reason: z.string().describe('Why this model, max 8 words'),
           when: z.enum(['now', 'queue']),
           depends_on: z.number().int().optional().describe('Task id that must finish first'),
+          on_done: z
+            .enum(['merge', 'review', 'pr'])
+            .optional()
+            .describe('Only if the developer asked for this task specifically: merge it in, hold it for review, or open a PR. Otherwise omit and the <when_done> setting applies.'),
         },
         async (a) => {
           const project = a.project ? repo.findProject(a.project) : repo.listProjects().length === 1 ? repo.listProjects()[0] : undefined;
@@ -57,6 +62,7 @@ export function createMasterTools() {
             projectId: project?.id ?? null,
             model: modelId(a.model, settings().workerModel),
             modelReason: a.model_reason,
+            onDone: a.on_done ?? currentOnDone(),
             autoStart: false,
             dependsOn: a.depends_on ?? null,
             createdBy: 'master',
