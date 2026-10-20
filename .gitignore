@@ -1,0 +1,5 @@
+node_modules/
+data/
+web/dist/
+.master-worktrees/
+.DS_Store

@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Light (default). Values are "r g b" so Tailwind can apply opacity. */
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+  --base: 245 245 247;
+  --panel: 255 255 255;
+  --raised: 232 232 237;
+  --line: 214 214 219;
+  --ink: 29 29 31;
+  --muted: 110 110 115;
+  --faint: 142 142 147;
+  --signal: 232 120 0;
+  --queue: 142 142 147;
+  --done: 36 150 66;
+  --danger: 215 0 21;
+  --glass: 250 250 252;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --base: 22 22 24;
+  --panel: 40 40 42;
+  --raised: 58 58 60;
+  --line: 56 56 58;
+  --ink: 245 245 247;
+  --muted: 161 161 166;
+  --faint: 110 110 115;
+  --signal: 255 159 10;
+  --queue: 142 142 147;
+  --done: 48 209 88;
+  --danger: 255 69 58;
+  --glass: 30 30 32;
+}
+
+/* Accent colors, macOS-style. Graphite follows the text color, so it's black in light and white in dark. */
+:root,
+:root[data-accent='graphite'] { --accent: var(--ink); --on-accent: var(--panel); }
+:root[data-accent='orange'] { --accent: 255 149 0; --on-accent: 255 255 255; }
+:root[data-accent='purple'] { --accent: 175 82 222; --on-accent: 255 255 255; }
+:root[data-accent='pink'] { --accent: 255 45 85; --on-accent: 255 255 255; }
+:root[data-accent='green'] { --accent: 40 180 70; --on-accent: 255 255 255; }
+:root[data-accent='teal'] { --accent: 0 168 168; --on-accent: 255 255 255; }
+:root[data-accent='blue'] { --accent: 0 122 255; --on-accent: 255 255 255; }
+
+html, body, #root { height: 100%; }
+body {
+  font-size: 14px;
+  line-height: 1.45;
+  letter-spacing: -0.006em;
+  background: rgb(var(--base));
+  color: rgb(var(--ink));
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: rgb(var(--accent) / 0.25); }
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--faint) / 0.4) transparent; }
+:focus-visible { outline: 2px solid rgb(var(--accent) / 0.55); outline-offset: 2px; border-radius: 8px; }
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 py-[5px] text-[13px] font-medium transition-[background-color,color,opacity] duration-150 disabled:opacity-40; }
+  .btn-run { @apply btn bg-run text-onaccent hover:opacity-90; }
+  .btn-line { @apply btn bg-raised/70 text-ink hover:bg-raised; }
+  .btn-ghost { @apply btn text-muted hover:bg-raised/60 hover:text-ink; }
+  .btn-signal { @apply btn bg-signal text-white hover:opacity-90; }
+  .btn-done { @apply btn bg-done text-white hover:opacity-90; }
+  .btn-danger { @apply btn text-danger hover:bg-danger/10; }
+  .field { @apply w-full rounded-[10px] border-0 bg-raised/60 px-3 py-[7px] text-ink outline-none ring-0 placeholder:text-faint focus:bg-panel focus:ring-[3px] focus:ring-run/25; }
+  .chip { @apply inline-flex items-center gap-1 rounded-full bg-raised/70 px-2 py-[1px] text-[11.5px] text-muted; }
+  .kbd { @apply rounded-[5px] bg-raised px-1 py-[1px] font-sans text-[11px] text-muted; }
+  .card { @apply rounded-card bg-panel shadow-card; }
+  .glass { background: rgb(var(--glass) / 0.72); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
+  .hairline { box-shadow: inset 0 -0.5px 0 rgb(var(--line)); }
+}
+
+:root[data-theme='dark'] .card { box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.06); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}

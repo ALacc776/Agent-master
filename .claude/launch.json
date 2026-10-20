@@ -1,0 +1,7 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "master", "runtimeExecutable": "npm", "runtimeArgs": ["start"], "port": 4545 },
+    { "name": "master-dev", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173 }
+  ]
+}
