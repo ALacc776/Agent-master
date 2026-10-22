@@ -22,7 +22,7 @@ export async function review(task: Task, diff: string): Promise<string | null> {
   if (!diff.trim()) return null;
   try {
     const { text, costUsd } = await oneShot(
-      `You are a strict code reviewer. Review this diff for the task below. Look for bugs, missing pieces vs. the brief, and risky changes.
+      `You are a code reviewer deciding whether this diff is safe to merge automatically. Set "ok": false ONLY for real problems: bugs, broken builds or tests, clearly missing parts of the brief, security issues, data loss, or risky changes outside the task's scope. Style, nitpicks, hypothetical improvements, and "can't verify from the diff alone" are NOT reasons to block; mention them in notes with ok: true.
 
 Task #${task.id}: ${task.title}
 Brief:

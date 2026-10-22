@@ -18,7 +18,10 @@ export function NewTaskModal() {
   const [title, setTitle] = useState('');
   const [brief, setBrief] = useState(TEMPLATES.Feature);
   const buildProjectId = useStore((s) => s.buildProjectId);
-  const [projectId, setProjectId] = useState<number | null>(projects.some((p) => p.id === buildProjectId) ? buildProjectId : (projects[0]?.id ?? null));
+  const scope = useStore((s) => s.scope);
+  const [projectId, setProjectId] = useState<number | null>(
+    scope !== 'boss' ? Number(scope) : projects.some((p) => p.id === buildProjectId) ? buildProjectId : (projects[0]?.id ?? null),
+  );
   const [model, setModel] = useState('auto');
   const defaultOnDone = useStore((s) => s.onDone);
   const [onDone, setOnDoneLocal] = useState(defaultOnDone);

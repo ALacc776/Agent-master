@@ -18,6 +18,7 @@ export function QueueCard({ task, onDragStart }: { task: Task; onDragStart: (id:
 
   const waiting = task.autoStart && task.status === 'queued';
   const paused = task.flags.includes('paused');
+  const attached = task.flags.includes('attached');
 
   const start = async () => {
     const r = await api.start(task.id);
@@ -88,16 +89,20 @@ export function QueueCard({ task, onDragStart }: { task: Task; onDragStart: (id:
         {!open && <span className="chip">{projects.find((p) => p.id === task.projectId)?.name ?? 'No project'}</span>}
         {!open && <span className="chip">{modelLabel(task.model)}</span>}
         {dep && !open && <span className="chip">After #{dep.id}</span>}
-        {task.onDone !== 'merge' && <span className="chip">{task.onDone === 'pr' ? 'Opens a PR' : 'You review'}</span>}
+        {task.onDone !== 'merge' && <span className="chip">{task.onDone === 'pr' ? 'Opens a PR' : task.onDone === 'keep' ? 'Stays open' : 'You review'}</span>}
         {task.createdBy === 'master' && <span className="chip">From master</span>}
-        {paused && <span className="chip text-signal">Paused</span>}
+        {attached ? <span className="chip text-run">In your terminal</span> : paused && <span className="chip text-signal">Paused</span>}
         {task.status === 'stopped' && <span className="chip">Stopped</span>}
       </div>
 
       {!open && task.modelReason && <p className="mt-1.5 text-[12px] text-faint">{modelLabel(task.model)} because {task.modelReason.replace(/^[A-Z](?![A-Z])/, (c) => c.toLowerCase()).replace(/\.$/, '')}</p>}
 
       <div className="mt-2.5 flex items-center gap-1">
-        {waiting ? (
+        {attached ? (
+          <button className="btn-run" onClick={async () => pushToast((await api.handBack(task.id, true)).result)} title="Let Master's agent carry on from where you left the session">
+            Hand back to Master
+          </button>
+        ) : waiting ? (
           <span className="text-[12px] text-muted">{dep && !['done', 'accepted'].includes(dep.status) ? `Starts when #${dep.id} is done` : 'Starts when a slot frees up'}</span>
         ) : (
           <button className="btn-run" onClick={start} title="Start (s)">

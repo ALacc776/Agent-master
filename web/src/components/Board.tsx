@@ -1,8 +1,8 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { api } from '../api.ts';
-import { pushToast, setState } from '../store.ts';
+import { pushToast, setState, toggleCompact, useStore } from '../store.ts';
 import type { Task } from '../../../shared/types.ts';
-import { useBoard } from '../ui.tsx';
+import { modelLabel, useBoard, usd } from '../ui.tsx';
 import { NeedsYouCard } from './NeedsYouCard.tsx';
 import { RunningCard } from './RunningCard.tsx';
 import { QueueCard } from './QueueCard.tsx';
@@ -37,7 +37,9 @@ function Column({ id, title, dot, count, empty, actions, children, active, foote
 }
 
 export function Board({ wide = false }: { wide?: boolean }) {
-  const { needs, running, queue, done, finished } = useBoard();
+  const { needs, running, queue, done, finished, idle } = useBoard();
+  const compact = useStore((s) => s.compact);
+  const wrap = (col: string, t: Task, card: ReactNode) => (compact[col] ? <Row key={t.id} task={t}>{card}</Row> : card);
   const [tab, setTab] = useState<Col>('needs');
   const dragId = useRef<number | null>(null);
   const counts = { needs: needs.length, running: running.length, queue: queue.length, done: done.length };
@@ -78,10 +80,27 @@ export function Board({ wide = false }: { wide?: boolean }) {
             <NeedsYouCard key={i.id} item={i} />
           ))}
         </Column>
-        <Column {...COLS[1]} count={running.length} active={tab === 'running'}>
-          {running.map((t) => (
-            <RunningCard key={t.id} task={t} />
-          ))}
+        <Column
+          {...COLS[1]}
+          count={running.length + idle.length}
+          active={tab === 'running'}
+          actions={running.length + idle.length > 0 && <CompactToggle column="running" />}
+          footer={
+            idle.length > 0 && (
+              <div className="space-y-2.5 pt-3">
+                <h3 className="flex items-center px-1 text-[12.5px] font-semibold text-muted">
+                  <span>
+                    Ready for more <span className="font-normal text-faint">{idle.length}</span>
+                  </span>
+                  <MergeAll tasks={idle} />
+                </h3>
+                {idle.map((t) => wrap('running', t, <DoneCard key={t.id} task={t} />))}
+              </div>
+            )
+          }
+        >
+          {running.length === 0 && idle.length > 0 && <p className="px-1 pt-1 text-[12.5px] text-faint">Nothing running right now.</p>}
+          {running.map((t) => wrap('running', t, <RunningCard key={t.id} task={t} />))}
         </Column>
         <Column
           {...COLS[2]}
@@ -112,10 +131,13 @@ export function Board({ wide = false }: { wide?: boolean }) {
             </div>
           ))}
         </Column>
-        <Column {...COLS[3]} count={done.length} active={tab === 'done'} footer={finished.length > 0 && <RecentlyFinished tasks={finished} />}>
-          {done.map((t) => (
-            <DoneCard key={t.id} task={t} />
-          ))}
+        <Column {...COLS[3]} count={done.length} active={tab === 'done'} actions={
+            <>
+              <MergeAll tasks={done} />
+              {done.length > 0 && <CompactToggle column="done" />}
+            </>
+          } footer={finished.length > 0 && <RecentlyFinished tasks={finished} />}>
+          {done.map((t) => wrap('done', t, <DoneCard key={t.id} task={t} />))}
         </Column>
       </div>
     </div>
@@ -147,5 +169,72 @@ function RecentlyFinished({ tasks }: { tasks: Task[] }) {
         })}
       </ul>
     </div>
+  );
+}
+
+// Merge every mergeable task in a list, one at a time. Failures stay put (with their reason) and don't stop the rest.
+function MergeAll({ tasks }: { tasks: Task[] }) {
+  const [busy, setBusy] = useState(false);
+  const mergeable = tasks.filter((t) => t.branch && t.status !== 'failed');
+  if (mergeable.length < 2) return null;
+  const flagged = mergeable.filter((t) => t.reviewVerdict?.startsWith('⚠️'));
+
+  const run = async () => {
+    const warn = flagged.length ? `\n\n${flagged.length} of them had review concerns: ${flagged.map((t) => `#${t.id}`).join(', ')}.` : '';
+    if (!confirm(`Merge ${mergeable.length} tasks into their base branches?${warn}`)) return;
+    setBusy(true);
+    let ok = 0;
+    const failed: number[] = [];
+    for (const t of mergeable) {
+      try {
+        await api.merge(t.id);
+        ok++;
+      } catch {
+        failed.push(t.id);
+      }
+    }
+    setBusy(false);
+    pushToast(`Merged ${ok} of ${mergeable.length}${failed.length ? `. Couldn't merge ${failed.map((id) => `#${id}`).join(', ')}; they're still here` : ''}`);
+  };
+
+  return (
+    <button className="btn-ghost ml-auto px-2 py-0.5 text-[12px]" onClick={run} disabled={busy} title="Merge each of these into its base branch">
+      {busy ? 'Merging…' : `Merge all ${mergeable.length}`}
+    </button>
+  );
+}
+
+function CompactToggle({ column }: { column: string }) {
+  const on = useStore((s) => !!s.compact[column]);
+  return (
+    <button className="btn-ghost px-2 py-0.5 text-[12px]" onClick={() => toggleCompact(column)} aria-pressed={on} title={on ? 'Show full cards' : 'Show one line per task'}>
+      {on ? 'Expand' : 'Compact'}
+    </button>
+  );
+}
+
+// One-line row for compact columns; click to open the full card in place.
+function Row({ task, children }: { task: Task; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  if (open)
+    return (
+      <div className="space-y-1">
+        {children}
+        <button className="px-1 text-[12px] text-faint hover:text-ink" onClick={() => setOpen(false)}>
+          Collapse
+        </button>
+      </div>
+    );
+  const waiting = task.status === 'needs_input';
+  const dot = waiting ? 'bg-signal' : task.status === 'stalled' || task.status === 'failed' ? 'bg-danger' : task.status === 'idle' ? 'bg-queue' : task.status === 'done' ? 'bg-done' : 'animate-pulse bg-run';
+  const line = waiting ? 'Waiting for you' : task.status === 'idle' ? 'Ready for more' : task.status === 'done' ? task.outcome ?? 'Needs your review' : task.statusLine;
+  return (
+    <button data-key={`task:${task.id}`} onClick={() => setOpen(true)} title={`${line}${'\n'}${modelLabel(task.model)}, ${usd(task.costUsd)}`} className="card flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-raised/40">
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+      <span className="text-[12.5px] font-semibold tabular-nums text-faint">#{task.id}</span>
+      <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{task.title}</span>
+      {waiting && <span className="shrink-0 text-[12px] font-medium text-signal">Waiting for you</span>}
+      <span className="shrink-0 text-[11.5px] tabular-nums text-faint">{usd(task.costUsd)}</span>
+    </button>
   );
 }

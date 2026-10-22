@@ -1,11 +1,12 @@
 import { api } from '../api.ts';
-import { setState, setView, useStore, type View } from '../store.ts';
-import { useBoard, usd } from '../ui.tsx';
+import { setPlan, setState, setView, toggleSidebar, useStore, type View } from '../store.ts';
+import { useBoard, useScopeName, usd } from '../ui.tsx';
 
 const VIEWS: { id: View; label: string; key: string }[] = [
   { id: 'board', label: 'Board', key: '1' },
   { id: 'split', label: 'Split', key: '2' },
   { id: 'master', label: 'Master', key: '3' },
+  { id: 'agents', label: 'Agents', key: '4' },
 ];
 
 export function Segmented<T extends string>({ value, options, onChange, label }: { value: T; options: { id: T; label: string; title?: string }[]; onChange: (v: T) => void; label: string }) {
@@ -47,15 +48,24 @@ export function TopBar() {
   const spent = useStore((s) => s.spentToday);
   const connected = useStore((s) => s.connected);
   const view = useStore((s) => s.view);
-  const { running, needs } = useBoard();
+  const { needs } = useBoard();
+  const running = useStore((s) => s.tasks.filter((t) => ['running', 'needs_input', 'stalled'].includes(t.status)).length);
+  const scopeName = useScopeName();
+  const planOpen = useStore((s) => s.planOpen);
   const cap = settings.dailyCapUsd || 0;
   const pct = cap ? Math.min(100, (spent / cap) * 100) : 0;
 
   return (
     <header className="glass hairline sticky top-0 z-10 grid h-[52px] shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 px-4">
       <div className="flex min-w-0 items-center gap-2.5">
+        <button className="hidden h-7 w-7 place-items-center rounded-[7px] text-muted hover:bg-raised/70 hover:text-ink md:grid" onClick={toggleSidebar} title="Collapse or expand the sidebar ([)" aria-label="Collapse or expand the sidebar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            <rect x="3" y="4" width="18" height="16" rx="3" />
+            <path d="M9 4v16" />
+          </svg>
+        </button>
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${needs.length ? 'bg-signal' : 'bg-done'}`} title={needs.length ? `${needs.length} need you` : 'All clear'} />
-        <h1 className="text-[15px] font-semibold tracking-tight">Master</h1>
+        <h1 className="truncate text-[15px] font-semibold tracking-tight">{scopeName}</h1>
         {!connected && <span className="chip bg-danger/10 text-danger">Reconnecting…</span>}
       </div>
 
@@ -64,7 +74,7 @@ export function TopBar() {
       <div className="flex items-center justify-end gap-3 text-[12.5px]">
         <div className="hidden items-center gap-1.5 text-muted md:flex" title="Agents running / how many can run at once">
           <span>
-            <span className="tabular-nums text-ink">{running.length}</span> of
+            <span className="tabular-nums text-ink">{running}</span> of
           </span>
           <div className="inline-flex items-center rounded-[8px] bg-raised/70">
             <button className="grid h-6 w-6 place-items-center rounded-l-[8px] hover:bg-raised disabled:opacity-30" aria-label="Allow fewer agents" disabled={settings.maxConcurrent <= 1} onClick={() => api.settings({ maxConcurrent: settings.maxConcurrent - 1 })}>
@@ -85,6 +95,14 @@ export function TopBar() {
             </span>
           )}
         </div>
+        <button
+          className={`btn px-3 ${planOpen ? 'bg-run text-onaccent' : 'bg-raised/70 text-ink hover:bg-raised'}`}
+          onClick={() => setPlan({ planOpen: !planOpen })}
+          title="Plan with Claude before building (P)"
+          aria-pressed={planOpen}
+        >
+          Plan
+        </button>
         <button className="grid h-8 w-8 place-items-center rounded-full text-muted hover:bg-raised/70 hover:text-ink" onClick={() => setState({ modal: 'search' })} title="Search (/)" aria-label="Search">
           {Icon.search}
         </button>

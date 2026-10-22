@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api.ts';
-import { setState, useStore } from '../store.ts';
-import { ago, parseSuggestion, useNow, useTask } from '../ui.tsx';
+import { setPlan, setState, useStore } from '../store.ts';
+import { ago, parseSuggestion, Rich, useNow, useTask } from '../ui.tsx';
 import type { InboxItem } from '../../../shared/types.ts';
 
 const KIND_TEXT: Record<InboxItem['kind'], string> = {
@@ -12,6 +12,7 @@ const KIND_TEXT: Record<InboxItem['kind'], string> = {
   collision: 'may conflict',
   failed: 'failed',
   context: 'is running long',
+  plan: 'has a plan for you',
   review: 'is ready for review',
 };
 
@@ -61,6 +62,7 @@ export function NeedsYouCard({ item }: { item: InboxItem }) {
         item.kind !== 'failed' && <p className="mt-2 text-[13.5px]">{isPermission ? `Wants to ${item.title}` : item.title}</p>
       )}
       {isPermission && item.detail.reason && <p className="mt-1 text-[12px] text-faint">{item.detail.reason}</p>}
+      {item.kind === 'plan' && item.detail.plan && <Rich text={item.detail.plan} className="mt-2 line-clamp-6 text-[12.5px] text-ink/85" />}
       {item.detail.message && !isPermission && (
         <p className={item.kind === 'failed' ? 'mt-2 whitespace-pre-wrap text-[13px]' : 'mt-1 text-[12px] text-muted'}>{item.detail.message}</p>
       )}
@@ -112,6 +114,16 @@ export function NeedsYouCard({ item }: { item: InboxItem }) {
               <button className="btn-line" onClick={() => answer('Status check: what are you stuck on? If you are repeating yourself, step back and try a different approach.')}>
                 Nudge
               </button>
+            )}
+            {item.kind === 'plan' && (
+              <>
+                <button className="btn-done" onClick={() => answer('approve')}>
+                  Approve &amp; build
+                </button>
+                <button className="btn-line" onClick={() => setPlan({ planOpen: true, planTaskId: item.taskId })}>
+                  Open plan
+                </button>
+              </>
             )}
             {item.kind === 'context' && (
               <>

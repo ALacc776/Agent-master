@@ -302,16 +302,20 @@ export class Repo {
   }
 
   // ---------- master chat
-  addMasterMessage(role: MasterMessage['role'], text: string): MasterMessage {
+  addMasterMessage(role: MasterMessage['role'], text: string, scope: string = 'boss'): MasterMessage {
     const ts = Date.now();
-    const res = this.db.prepare('INSERT INTO master_messages (role, text, ts) VALUES (?, ?, ?)').run(role, text, ts);
+    const res = this.db.prepare('INSERT INTO master_messages (role, text, ts, scope) VALUES (?, ?, ?, ?)').run(role, text, ts, scope);
     this.index('master', null, text, ts);
-    return { id: Number(res.lastInsertRowid), role, text, ts };
+    return { id: Number(res.lastInsertRowid), role, text, ts, scope };
   }
-  listMasterMessages(limit = 200): MasterMessage[] {
-    return (this.db.prepare('SELECT * FROM master_messages ORDER BY id DESC LIMIT ?').all(limit) as Row[])
-      .reverse()
-      .map((r) => ({ id: r.id, role: r.role, text: r.text, ts: r.ts }));
+  /** Recent messages for every master (each conversation keeps up to `perScope`). */
+  listMasterMessages(perScope = 150): MasterMessage[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY scope ORDER BY id DESC) AS n FROM master_messages) WHERE n <= ? ORDER BY id`,
+      )
+      .all(perScope) as Row[];
+    return rows.map((r) => ({ id: r.id, role: r.role, text: r.text, ts: r.ts, scope: r.scope }));
   }
 
   // ---------- spend

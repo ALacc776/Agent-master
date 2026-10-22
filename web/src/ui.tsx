@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useStore } from './store.ts';
-import type { InboxItem, OnDone, Task } from '../../shared/types.ts';
+import { setMaximized, useStore, type Maximized } from './store.ts';
+import { MODELS, type InboxItem, type OnDone, type Task } from '../../shared/types.ts';
 
 export const ACTIVE = ['running', 'needs_input', 'stalled'];
 
@@ -85,12 +85,32 @@ export interface BoardData {
   queue: Task[];
   done: Task[];
   finished: Task[]; // landed on their own recently (merged, PR opened, nothing to change)
+  idle: Task[]; // kept open with their context, ready for more
   order: string[]; // keyboard navigation order
 }
 
+// Tasks and Needs-you items for the open master: everything for the boss, one project otherwise.
+export function useScopedTasks(): Task[] {
+  const all = useStore((s) => s.tasks);
+  const scope = useStore((s) => s.scope);
+  return useMemo(() => (scope === 'boss' ? all : all.filter((t) => String(t.projectId) === scope)), [all, scope]);
+}
+
+export function useScopeName(): string {
+  const scope = useStore((s) => s.scope);
+  const projects = useStore((s) => s.projects);
+  return scope === 'boss' ? 'Boss' : projects.find((p) => String(p.id) === scope)?.name ?? 'Project';
+}
+
 export function useBoard(): BoardData {
-  const tasks = useStore((s) => s.tasks);
-  const inbox = useStore((s) => s.inbox);
+  const tasks = useScopedTasks();
+  const allInbox = useStore((s) => s.inbox);
+  const scope = useStore((s) => s.scope);
+  const inbox = useMemo(() => {
+    if (scope === 'boss') return allInbox;
+    const ids = new Set(tasks.map((t) => t.id));
+    return allInbox.filter((i) => i.taskId != null && ids.has(i.taskId));
+  }, [allInbox, tasks, scope]);
   return useMemo(() => {
     const byId = new Map(tasks.map((t) => [t.id, t]));
     const dependents = (id: number | null) => tasks.filter((t) => t.dependsOn === id).length;
@@ -98,6 +118,7 @@ export function useBoard(): BoardData {
       .filter((i) => i.status === 'open')
       .sort((a, b) => dependents(b.taskId) - dependents(a.taskId) || a.createdAt - b.createdAt);
     const running = tasks.filter((t) => ACTIVE.includes(t.status));
+    const idle = tasks.filter((t) => t.status === 'idle').sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0));
     const queue = tasks.filter((t) => t.status === 'queued' || t.status === 'stopped').sort((a, b) => a.position - b.position);
     const done = tasks
       .filter((t) => t.status === 'done' || t.status === 'failed')
@@ -110,10 +131,11 @@ export function useBoard(): BoardData {
     const order = [
       ...needs.map((i) => `inbox:${i.id}`),
       ...running.map((t) => `task:${t.id}`),
+      ...idle.map((t) => `task:${t.id}`),
       ...queue.map((t) => `task:${t.id}`),
       ...done.map((t) => `task:${t.id}`),
     ];
-    return { needs, running, queue, done, finished, order };
+    return { needs, running, queue, done, finished, idle, order };
   }, [tasks, inbox]);
 }
 
@@ -151,14 +173,15 @@ export const ON_DONE_OPTIONS: { id: OnDone; label: string; title: string }[] = [
   { id: 'merge', label: 'Merge', title: 'Merge into your project automatically when it finishes' },
   { id: 'review', label: 'Review', title: 'Hold it in Review so you can look first' },
   { id: 'pr', label: 'PR', title: 'Open a GitHub pull request when it finishes' },
+  { id: 'keep', label: 'Keep', title: 'Keep the agent open with its context so you can keep chatting with it; merge when you say' },
 ];
 
-export function WhenDone({ value, onChange, size = 'sm' }: { value: OnDone; onChange: (v: OnDone) => void; size?: 'sm' | 'md' }) {
+function Pills<T extends string>({ label, value, options, onChange, size = 'sm' }: { label: string; value: T; options: { id: T; label: string; title?: string }[]; onChange: (v: T) => void; size?: 'sm' | 'md' }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[12.5px] text-faint">When done</span>
-      <div role="radiogroup" aria-label="When done" className="inline-flex rounded-[8px] bg-raised/70 p-[2px]">
-        {ON_DONE_OPTIONS.map((o) => (
+      <span className="text-[12.5px] text-faint">{label}</span>
+      <div role="radiogroup" aria-label={label} className="inline-flex rounded-[8px] bg-raised/70 p-[2px]">
+        {options.map((o) => (
           <button
             key={o.id}
             type="button"
@@ -175,5 +198,64 @@ export function WhenDone({ value, onChange, size = 'sm' }: { value: OnDone; onCh
         ))}
       </div>
     </div>
+  );
+}
+
+const MODEL_OPTIONS = [
+  { id: 'auto', label: 'Auto', title: 'The master picks by difficulty' },
+  { id: MODELS.haiku, label: 'Haiku', title: 'Fast and cheap: small, simple changes' },
+  { id: MODELS.sonnet, label: 'Sonnet', title: 'Balanced: most work' },
+  { id: MODELS.opus, label: 'Opus', title: 'Strongest: hard problems' },
+];
+
+export function ModelToggle({ value, onChange, size = 'sm' }: { value: string; onChange: (v: string) => void; size?: 'sm' | 'md' }) {
+  return <Pills label="Model" value={value} options={MODEL_OPTIONS} onChange={onChange} size={size} />;
+}
+
+export function WhenDone({ value, onChange, size = 'sm' }: { value: OnDone; onChange: (v: OnDone) => void; size?: 'sm' | 'md' }) {
+  return <Pills label="When done" value={value} options={ON_DONE_OPTIONS} onChange={onChange} size={size} />;
+}
+
+export const TERMINAL_HINT = 'Pause this agent and open its session in Claude Code in Terminal, with all CLI commands';
+
+// Compact model menu that looks like a chip.
+export function ModelSelect({ value, onChange, label }: { value: string; onChange: (model: string) => void; label: string }) {
+  return (
+    <select
+      aria-label={label}
+      title={label}
+      value={value}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => onChange(e.target.value)}
+      className="cursor-pointer appearance-none rounded-full bg-raised/70 px-2 py-[1px] text-[11.5px] text-muted hover:bg-raised hover:text-ink focus:outline-none"
+    >
+      {Object.values(MODELS).map((m) => (
+        <option key={m} value={m}>
+          {modelLabel(m)}
+        </option>
+      ))}
+      {!Object.values(MODELS).includes(value as any) && <option value={value}>{value}</option>}
+    </select>
+  );
+}
+
+// ⤢ opens a panel or agent as a big popup; inside the popup it shows ⤡ to go back.
+export function MaximizeButton({ target, label }: { target: Maximized; label: string }) {
+  const current = useStore((s) => s.maximized);
+  const on = !!current && JSON.stringify(current) === JSON.stringify(target);
+  return (
+    <button
+      className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] text-muted hover:bg-raised/70 hover:text-ink"
+      onClick={(e) => {
+        e.stopPropagation();
+        setMaximized(on ? null : target);
+      }}
+      title={on ? 'Back to normal size (Esc)' : `Maximize ${label}`}
+      aria-label={on ? 'Restore' : `Maximize ${label}`}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        {on ? <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /> : <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />}
+      </svg>
+    </button>
   );
 }

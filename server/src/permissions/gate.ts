@@ -1,5 +1,5 @@
 import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk';
-import { addEvent, addInbox, repo, settings, updateInbox } from '../ctx.ts';
+import { addEvent, addInbox, repo, settings, updateInbox, updateTask } from '../ctx.ts';
 import { classify, describeTool } from './policy.ts';
 import { derivePattern, exactQuestionRule, matchPermissionRule } from './rules.ts';
 import { autoAnswer, fuzzyQuestionRule } from './suggest.ts';
@@ -82,6 +82,28 @@ export function createGate(taskId: number, cwd: string, onPendingChange: () => v
     const rules = repo.listRules();
 
     // Worker questions → Needs You (unless a remembered answer settles it).
+    const planning = repo.getTask(taskId)?.flags.includes('plan') ?? false;
+
+    // Plan mode: a proposed plan waits for the developer's approval.
+    if (toolName === 'ExitPlanMode' && planning) {
+      const plan = String(input.plan ?? '');
+      const item = addInbox({ taskId, kind: 'plan', title: 'has a plan ready for you', detail: { plan } });
+      addEvent(taskId, 'permission', 'Proposed a plan; waiting for your approval');
+      const waiting = waitForAnswer(item, taskId, signal);
+      onPendingChange();
+      const answer = await waiting;
+      onPendingChange();
+      if (signal.aborted) return { behavior: 'deny', message: 'Cancelled' };
+      if (/^(approve|approved|yes|y|go|build|ok)$/i.test(answer.trim())) {
+        const t = repo.getTask(taskId)!;
+        updateTask(taskId, { flags: [...t.flags.filter((f) => f !== 'plan'), 'planned'], statusLine: 'Building the approved plan' });
+        addEvent(taskId, 'user', 'Plan approved. Build it.');
+        return { behavior: 'allow', updatedInput: input, updatedPermissions: [{ type: 'setMode', mode: 'default', destination: 'session' }] };
+      }
+      addEvent(taskId, 'user', `Keep planning: ${answer}`);
+      return { behavior: 'deny', message: `The developer wants to keep planning: ${answer}\nDiscuss or revise, then present the updated plan with ExitPlanMode.` };
+    }
+
     if (toolName === 'AskUserQuestion') {
       const questions = ((input.questions as any[]) ?? []).map((q) => ({
         question: String(q.question ?? ''),
@@ -101,7 +123,7 @@ export function createGate(taskId: number, cwd: string, onPendingChange: () => v
         return { behavior: 'allow', updatedInput: { ...input, answers } };
       }
       // Auto mode: the cheap model answers routine questions; only real decisions reach the developer.
-      if (settings().autoMode && questions.length) {
+      if (settings().autoMode && questions.length && !planning) {
         const auto = await autoAnswer(taskId, questions.filter((q) => !answers[q.question]));
         if (auto) {
           Object.assign(answers, auto);
@@ -115,8 +137,9 @@ export function createGate(taskId: number, cwd: string, onPendingChange: () => v
         title: questions.map((q) => q.question).join(' / ') || 'Agent has a question',
         detail: { questions },
       });
+      const waiting = waitForAnswer(item, taskId, signal); // register first, so the status flips to "needs you"
       onPendingChange();
-      const answer = await waitForAnswer(item, taskId, signal);
+      const answer = await waiting;
       onPendingChange();
       if (signal.aborted) return { behavior: 'deny', message: 'Cancelled' };
       for (const q of questions) answers[q.question] ??= answer;
@@ -137,6 +160,11 @@ export function createGate(taskId: number, cwd: string, onPendingChange: () => v
       return { behavior: 'deny', message: rule.answer ? `The user says: ${rule.answer}` : 'The user has a standing rule denying this. Do not retry; find another way or finish without it.' };
     }
     if (verdict.decision === 'allow') return { behavior: 'allow', updatedInput: input };
+    // Auto mode: an agent never needs to edit outside its own copy (usually a garbled path). Refuse and redirect it.
+    if (s.autoMode && verdict.outside) {
+      addEvent(taskId, 'permission', `Auto-refused an edit outside the working folder: ${verdict.subject}`);
+      return { behavior: 'deny', message: `That path is outside your working directory. Only edit files inside ${cwd} (relative paths are fine). Retry with the correct path.` };
+    }
     // Auto mode: anything not on the always-ask list goes ahead.
     if (verdict.decision === 'ask' && s.autoMode) return { behavior: 'allow', updatedInput: input };
     if (rule?.decision === 'allow' && verdict.decision === 'ask') {
@@ -151,8 +179,9 @@ export function createGate(taskId: number, cwd: string, onPendingChange: () => v
       detail: { toolName, input, reason: verdict.reason, command: toolName === 'Bash' ? String(input.command) : undefined },
     });
     addEvent(taskId, 'permission', `Waiting for you: ${describeTool(toolName, input)} (${verdict.reason})`);
+    const waiting = waitForAnswer(item, taskId, signal); // register first, so the status flips to "needs you"
     onPendingChange();
-    const answer = await waitForAnswer(item, taskId, signal);
+    const answer = await waiting;
     onPendingChange();
     if (signal.aborted) return { behavior: 'deny', message: 'Cancelled' };
     if (isAllow(answer)) {

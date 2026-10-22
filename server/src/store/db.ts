@@ -27,4 +27,7 @@ function migrate(db: DatabaseSync) {
     db.exec("UPDATE tasks SET on_done = 'merge' WHERE status IN ('queued', 'running', 'needs_input', 'stalled', 'stopped')");
   }
   if (!cols.has('outcome')) db.exec('ALTER TABLE tasks ADD COLUMN outcome TEXT');
+  const mcols = new Set((db.prepare('PRAGMA table_info(master_messages)').all() as { name: string }[]).map((c) => c.name));
+  // Conversations from before per-project masters belong to the boss.
+  if (!mcols.has('scope')) db.exec("ALTER TABLE master_messages ADD COLUMN scope TEXT NOT NULL DEFAULT 'boss'");
 }

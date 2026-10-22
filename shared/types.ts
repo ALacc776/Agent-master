@@ -3,6 +3,7 @@
 export type TaskStatus =
   | 'queued'
   | 'running'
+  | 'idle' // finished its latest instructions; kept open with its context for more
   | 'needs_input'
   | 'stalled'
   | 'done'
@@ -12,8 +13,9 @@ export type TaskStatus =
 
 export type CreatedBy = 'user' | 'master';
 
-// What happens when a task finishes: merge it in, hold it for review, or open a pull request.
-export type OnDone = 'merge' | 'review' | 'pr';
+// What happens when a task finishes: merge it in, hold it for review, open a pull request,
+// or keep the agent open (idle, context intact) for more instructions.
+export type OnDone = 'merge' | 'review' | 'pr' | 'keep';
 
 export interface Project {
   id: number;
@@ -63,6 +65,7 @@ export type InboxKind =
   | 'collision'
   | 'failed'
   | 'context'
+  | 'plan'
   | 'review';
 
 export interface QuestionOption {
@@ -78,6 +81,7 @@ export interface InboxDetail {
   reason?: string;
   questions?: { question: string; header?: string; options: QuestionOption[]; multiSelect?: boolean }[];
   message?: string;
+  plan?: string; // a plan proposed from plan mode, waiting for approval
 }
 
 export interface InboxItem {
@@ -115,11 +119,22 @@ export interface TaskEvent {
   ts: number;
 }
 
+// Which master a conversation belongs to: the boss (all projects) or one project's master (its id as a string).
+export type Scope = string;
+export const BOSS: Scope = 'boss';
+
 export interface MasterMessage {
   id: number;
   role: 'user' | 'master' | 'system';
   text: string;
   ts: number;
+  scope: Scope;
+}
+
+export interface MasterState {
+  busy: boolean;
+  queue: number;
+  model: string;
 }
 
 export interface Settings {
@@ -150,8 +165,9 @@ export interface Snapshot {
   rules: Rule[];
   preferences: Preference[];
   master: MasterMessage[];
-  masterBusy: boolean;
-  masterQueue: number;
+  masters: Record<Scope, MasterState>;
+  procs: ProcInfo[];
+  runCommands: Record<string, string>; // project id → its run command
   settings: Settings;
   spentToday: number;
 }
@@ -163,13 +179,35 @@ export type WsMessage =
   | { type: 'inbox'; data: InboxItem }
   | { type: 'event'; data: TaskEvent }
   | { type: 'master_message'; data: MasterMessage }
-  | { type: 'master_state'; busy: boolean; queue: number }
+  | { type: 'master_state'; scope: Scope; state: MasterState }
   | { type: 'settings'; data: Settings }
   | { type: 'projects'; data: Project[] }
   | { type: 'rules'; data: Rule[] }
   | { type: 'preferences'; data: Preference[] }
   | { type: 'spent'; value: number }
-  | { type: 'toast'; text: string };
+  | { type: 'toast'; text: string }
+  | { type: 'proc'; data: ProcInfo }
+  | { type: 'proc_output'; id: string; projectId: number; text: string }
+  | { type: 'procs_cleared'; projectId: number }
+  | { type: 'run_command'; projectId: number; command: string };
+
+// A project's dev server ("run") or a one-off terminal command.
+export interface ProcInfo {
+  id: string;
+  projectId: number;
+  kind: 'run' | 'term';
+  cmd: string;
+  status: 'running' | 'exited';
+  code: number | null;
+  startedAt: number;
+  lines: string[]; // recent output
+}
+
+export interface AgentCommand {
+  name: string; // without the leading slash
+  description: string;
+  argumentHint: string;
+}
 
 export interface DirEntry {
   name: string;

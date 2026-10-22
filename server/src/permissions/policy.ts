@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 // Pure permission policy: decides whether a worker's tool call is auto-allowed, needs the user,
 // or is on the always-ask list (push/merge/deploy/destructive/outside-worktree).
 
-export type PolicyDecision = { decision: 'allow' | 'ask' | 'always_ask'; reason: string; subject: string };
+export type PolicyDecision = { decision: 'allow' | 'ask' | 'always_ask'; reason: string; subject: string; outside?: boolean };
 
 export interface PolicyOptions {
   cwd: string;
@@ -116,7 +116,7 @@ export function classify(toolName: string, input: Record<string, unknown>, opts:
 
   if (EDIT_TOOLS.has(toolName)) {
     const p = filePathOf(input);
-    if (!isInside(opts.cwd, p)) return { decision: 'always_ask', reason: 'Edits a file outside the worktree', subject: p };
+    if (!isInside(opts.cwd, p)) return { decision: 'always_ask', reason: 'Edits a file outside the worktree', subject: p, outside: true };
     return opts.autoAllowEdits
       ? { decision: 'allow', reason: 'Edit inside worktree', subject: p }
       : { decision: 'ask', reason: 'Edit (auto-allow is off)', subject: p };

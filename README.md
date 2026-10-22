@@ -1,60 +1,112 @@
 # Master
 
-One chat that runs a fleet of Claude coding agents, plus a dashboard to keep track of them.
+One chat that runs a fleet of Claude coding agents, with a dashboard to watch and steer them.
 
-You talk to **the master** (a cheap, fast Haiku agent). It turns what you say into tasks and starts worker agents (Sonnet by default, Opus for hard work) without asking you. You can keep chatting while they work. The master never waits on them.
+You talk to a **master**, a cheap, fast Haiku agent. It turns what you say into tasks and starts **worker agents** (real Claude Code sessions) without asking you. You can keep chatting while they work, because the master never waits on them. Each project has its own master, and a **Boss** master oversees all of them.
 
-The dashboard has four columns:
-
-- **Needs you**: in auto mode (the default), only pushes, deploys, deletions, real decisions and failures. Routine prompts are approved, routine questions are answered by a cheap model, and stuck or looping agents are nudged automatically. Each card has a suggested answer, one-click buttons, and **Remember this answer**.
-- **Running**: live status line ("Editing theme.ts", "Running npm test"), elapsed time, cost, warnings. Peek, pause or stop.
-- **Queue**: tasks waiting for you to press **▶ Start** (or **Start all**). Edit the brief, project, model or dependency. Drag to reorder.
-- **Review**: only what needs your eyes. Finished work merges into your project by itself; Review gets tasks you set to Review, anything the automatic review flagged, and anything that couldn't merge cleanly (with the reason). **Merge**, **Open PR**, **Ask for changes**, **Follow-up**, or **Dismiss**. A "Recently finished" list shows what landed.
-- **When done** (next to Build in): **Merge** (default), **Review** or **PR**, applied to the tasks that message creates. Or tell the master "let me review this one" / "open a PR for that".
-
-## Setup
+## Quick start
 
 ```bash
 npm install
+claude auth login        # once, if `claude auth status` says you're not logged in
+npm start                # builds the dashboard and starts the server
 ```
 
-The agents run through the Claude Agent SDK, which uses your `claude` CLI login. If `claude auth status` says you're not logged in:
+Open **http://127.0.0.1:4545**, click **Add project…** in the sidebar, pick a folder, and tell its master what you want:
 
-```bash
-claude auth login
-```
+> Fix the broken signup redirect, and later add dark mode.
 
-(Or export `ANTHROPIC_API_KEY` before starting.)
+`npm run dev` gives hot reload for development (dashboard on http://localhost:5173, server on 4545).
 
-## Run
+After changing server code, restart with Ctrl+C and `npm start`. Dashboard-only changes need just a page reload.
 
-```bash
-npm start
-```
+## The dashboard
 
-Open http://127.0.0.1:4545. Pick where to build with **Build in → Choose a folder…** under the chat (a Finder dialog or a built-in folder browser), then tell the master what you want, e.g. *"Fix the broken signup redirect, and later add dark mode."*
+### Sidebar: Boss and project masters
+- **Boss** sees every project. It can start work anywhere and hand bigger requests to a project's master; that request appears in the project master's chat.
+- **Each project** has its own master, with its own conversation, memory and model. Selecting a project focuses the whole dashboard on it.
+- Badges show what needs you (orange) and how many agents are running; ▶ means that project's app is running.
+- The sidebar collapses to an icon rail (`[`).
 
-For development with hot reload: `npm run dev` (dashboard on http://localhost:5173).
+### Layouts (toolbar, or keys `1`–`4`)
+| Layout | What it shows |
+|---|---|
+| **Board** | Four columns; the master shrinks to a floating chat bar at the bottom (replies pop up above it) |
+| **Split** | Board plus the master chat on the right |
+| **Master** | The chat full screen, with status pills on top |
+| **Agents** | A wall of live agent tiles: each streams what its agent is doing, takes messages, shows Allow/Deny or plan approval when it's waiting on you, and has Merge when ready |
 
-## How it works
+### The board
+- **Needs you**: only what really needs you. In auto mode that's pushes, deploys, deletions, real decisions, plan approvals and failures. Each card has a suggested answer, one-click buttons, and **Remember this answer**.
+- **Running**: live status, model (switch it live), turns, cost. Below it, **Ready for more** holds agents kept open with their context. Includes **Compact**, **Merge all**, a **Fresh session** button for long runs, and a **Terminal** button.
+- **Queue**: tasks waiting for ▶ Start (or Start all). Edit the brief, project, model or dependency, and drag to reorder.
+- **Review**: only work that needs your eyes: tasks set to Review, work the automatic review flagged, or work that couldn't merge (with the reason). **Merge**, **Open PR**, **Ask for changes**, **Follow-up**, **Dismiss**, plus **Recently finished** and **Merge all**.
 
-- **Workers:** each task gets its own git worktree and branch (`<project>/.master-worktrees/<id>-<slug>`, branch `master/<id>-<slug>`), so parallel agents never edit the same checkout. Non-git folders run in place, one task at a time.
+### Talking to the master (bottom bar)
+- **Build in**: a project folder (Boss only; a project master always works in its project).
+- **Model**: Auto lets the master pick per task (Haiku for trivial work, Sonnet by default, Opus for hard work); otherwise it forces your choice.
+- **When done**: **Merge** (default; lands automatically after the review), **Review**, **PR**, or **Keep** (the agent stays open with its context for more instructions).
+- `@3 make it blue` talks to agent #3 directly. `/` gives master commands: `/model opus`, `/when review`, `/agents 6`, `/pause`, `/resume`, `/view board`, `/new`.
+
+The master can also **operate everything for you**:
+- start, stop or restart the app, read its output, or type into it;
+- run terminal commands;
+- pause or resume agents, set how many run at once, switch auto mode;
+- merge, PR or dismiss finished work;
+- start and approve plans.
+
+Just ask: "restart the app and tell me the URL", "what does git status say?", "pause everything".
+
+### Agents keep their context
+The master reuses an agent when your message relates to its work, instead of starting a new one. Even finished or merged agents can be continued: they reopen with their memory on a fresh branch from your latest code (click them in Recently finished, or use `@N`).
+
+### Plan panel (`P`)
+Talk an idea through with a normal Claude agent in **plan mode**: it reads the project but changes nothing. When it proposes a plan, choose **Approve & build** (the same agent builds it in its own worktree, then finishes per When done) or **Keep planning** with your notes.
+
+### Run and Terminal (bottom panel, per project)
+- **Run** starts the project's dev command (auto-detected; click to change), with Restart and Stop, live output, an **Open** button for local URLs, and an input line for typing into the app (e.g. `r` to reload Expo).
+- **Terminal** runs commands in the project folder. One command at a time; not an interactive shell.
+- The panel collapses to a slim bar with the run buttons; drag its edge to resize.
+
+### Agent tools
+- **Transcript** (click a title): full activity, a model switcher, and messages with `/` Claude commands (built-ins, your custom commands and skills).
+- **⤢ Maximize** opens the Plan panel, master chat, console or any agent tile as a big popup.
+- **Search** (`/`), the **while you were away** digest, and Mac and phone (ntfy) notifications.
+
+### Settings
+Appearance (Auto/Light/Dark, accent color), projects, models, limits (agents at once, daily $ cap, stuck timer, turn warning), auto mode, the default When done, remembered answers, preferences, notifications, and access from other devices.
+
+## How agents work
+- Each task runs in its own **git worktree and branch** (`<project>/.master-worktrees/<id>-<slug>`, `master/<id>-<slug>`). Non-git folders run in place, one task at a time.
 - **Permissions:**
-  - Agents edit files inside their worktree and run safe commands (tests, builds, git status/commit, local installs) without asking.
-  - **Always asks:** push, merge or rebase, deploy or publish, `rm -rf`, `sudo`, global installs, and edits outside the worktree.
-  - Everything else becomes a Needs-you card. Only that one agent waits.
-- **"Now" vs "queue":** direct requests start right away. "Later" requests and things the master suggests on its own go to the queue.
-- **Models:** the master picks a model for every task and says why (Haiku for trivial work, Sonnet by default, Opus for hard work). Tasks you add yourself can use **Auto**, which picks the same way.
-- **Limits:** 4 agents at once by default; change it with the − / + in the top bar (up to 20). $20/day spending cap by default (Settings). Over the limit, tasks wait and start themselves when a slot frees up.
-- **Turns:** every card shows how many model turns the agent has used in its current session. At 100 (configurable), you get a Needs-you card: **Start fresh session** stops the agent, writes a handoff summary, and continues in a new session to save context.
-- **Pause all** interrupts every agent. **Resume all** continues each from where it stopped.
-- **Watchdog:** flags agents with no activity for 10 minutes, agents repeating the same action 3 times, and two agents editing the same files.
-- **Notifications:** a Mac notification when something needs you or finishes. Optional phone push via [ntfy.sh](https://ntfy.sh): set a topic in Settings and subscribe to it in the ntfy app.
-- **Phone access:** off by default. Turn on "Open the dashboard from other devices" in Settings, restart, and open the URL with the token shown there.
-- **While you were away:** come back after 30+ minutes and you get a short digest of what happened.
-- **Layouts:** **Board** hides the master behind a floating chat bar at the bottom (replies peek above it), **Split** shows the board with the chat on the right, **Master** makes the chat full screen with status pills on top.
-- **Appearance:** Settings → Appearance: Auto/Light/Dark and an accent color (Graphite by default). Saved per browser.
-- **Search** (`/`) covers tasks, agent output and master chat. **Voice input**: the mic button in the chat.
+  - Edits inside the agent's own copy and safe commands are always fine.
+  - In **auto mode** (the default), anything else routine is allowed too, and questions are answered by Haiku unless they're a real decision.
+  - **Push, merge or rebase, deploy or publish, `rm -rf`, `sudo` and global installs always ask you.** Edits outside the agent's folder are refused automatically in auto mode.
+- **Watchdog:** stuck or looping agents get nudged. Long sessions (100 turns by default) restart fresh with a handoff summary.
+- **Finishing:** commit, summary, automatic review (blocks only real problems), then Merge, Review, PR or Keep.
+
+## Command line
+
+```bash
+npm link                     # once, from this folder; installs the `master` command
+```
+
+```bash
+master                       # chat with the Boss (master --project app for a project's master)
+master status                # Needs you / Running / Queue / Review
+master say "fix the login bug" --project my-app --when review --model sonnet
+master inbox                 # what needs you
+master answer 12 allow --remember
+master logs 3 -f             # follow agent #3
+master msg 3 /compact        # slash commands pass straight through
+master attach 3              # pause #3 and open its session in Claude Code; hand it back when you quit
+master adopt                 # hand a `claude` session you started (in this folder) to Master
+master claude                # open Claude Code AS the master (your commands + Master's tools)
+master install-mcp           # give every Claude Code session Master's tools
+master help                  # everything else
+```
+
+Set `MASTER_URL` and `MASTER_TOKEN` to point the CLI at another machine.
 
 ## Keyboard
 
@@ -68,24 +120,18 @@ For development with hot reload: `npm run dev` (dashboard on http://localhost:51
 | `o` / `Enter` | Open the transcript |
 | `c` | Focus the master chat |
 | `/` | Search |
-| `p` | Pause all / resume all |
+| `p` | Pause / resume all |
 | `N` | New task |
-| `1` / `2` / `3` | Board / Split / Master layout |
+| `P` | Plan panel |
+| `1`–`4` | Board / Split / Master / Agents |
+| `[` | Collapse / expand the sidebar |
 | `?` | Show shortcuts |
 
-## Layout
+## Development
 
-```
-server/src/
-  index.ts            HTTP + WebSocket API
-  master/             the master agent (Haiku) and its tools
-  workers/            worker runner, worktrees, scheduler glue, summaries/review
-  permissions/        policy, remembered rules, Needs-you gate, suggested answers
-  scheduler.ts        concurrency, budget and dependency rules
-  watchdog.ts         stalled / looping / collision detection
-web/src/              React dashboard
-shared/types.ts       types shared by both
-data/                 SQLite database (created on first run)
+```bash
+npm run typecheck
+npm test
 ```
 
-Tests: `npm test`. Typecheck: `npm run typecheck`.
+Architecture, file map, design decisions and how to test against a sandbox are in **[HANDOFF.md](HANDOFF.md)**.

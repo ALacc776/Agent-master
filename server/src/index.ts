@@ -8,12 +8,14 @@ import { bus } from './bus.ts';
 import { addSpend, onNewInbox, publishTask, repo, toast } from './ctx.ts';
 import { pickModel } from './llm.ts';
 import { chooseFolderNative, listDirs } from './fs.ts';
-import { master } from './master/agent.ts';
+import { getMaster, masterStates } from './master/agent.ts';
 import { answerItem, dismissItem } from './inbox.ts';
 import { notify } from './notify.ts';
 import { suggestAnswer } from './permissions/suggest.ts';
 import { addProjectFromPath } from './projects.ts';
 import { digest } from './digest.ts';
+import { listSessions } from './sessions.ts';
+import { clearTerminal, listProcs, restartRun, runCommands, runTerminal, sendInput, setRunCommand, startRun, stopProc, stopRun } from './processes.ts';
 import { startWatchdog } from './watchdog.ts';
 import { fullDiff } from './workers/worktree.ts';
 import {
@@ -21,6 +23,13 @@ import {
   deleteTask,
   followUp,
   freshSession,
+  detachTask,
+  createPlan,
+  setTaskModel,
+  taskCommands,
+  adoptSession,
+  handBack,
+  openInTerminal,
   mergeTask,
   messageTask,
   openPr,
@@ -33,7 +42,7 @@ import {
   stopTask,
   tick,
 } from './workers/manager.ts';
-import type { OnDone, Settings, Snapshot, Task } from '../../shared/types.ts';
+import { BOSS, type OnDone, type Settings, type Snapshot, type Task } from '../../shared/types.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 4545);
@@ -56,8 +65,9 @@ function snapshot(): Snapshot {
     rules: repo.listRules(),
     preferences: repo.listPreferences(),
     master: repo.listMasterMessages(),
-    masterBusy: master.busy,
-    masterQueue: master.queueLength,
+    masters: masterStates(),
+    procs: listProcs(),
+    runCommands: runCommands(),
     settings: repo.getSettings(),
     spentToday: repo.spentToday(),
   };
@@ -95,12 +105,16 @@ app.get('/api/snapshot', async () => snapshot());
 
 // ----- master
 app.post('/api/master/message', async (req) => {
-  const { text, projectId, onDone } = body<{ text: string; projectId?: number | null; onDone?: OnDone }>(req);
-  if (text?.trim()) master.send(text.trim(), projectId ?? null, onDone ?? null);
+  const { text, projectId, onDone, model, scope } = body<{ text: string; projectId?: number | null; onDone?: OnDone; model?: string; scope?: string }>(req);
+  if (text?.trim()) getMaster(scope ?? BOSS).send(text.trim(), { projectId, onDone, model });
   return { ok: true };
 });
-app.post('/api/master/reset', async () => {
-  await master.reset();
+app.post('/api/master/model', async (req) => {
+  await getMaster(body(req).scope ?? BOSS).setModel(String(body(req).model));
+  return { ok: true };
+});
+app.post('/api/master/reset', async (req) => {
+  await getMaster(body(req).scope ?? BOSS).reset();
   return { ok: true };
 });
 
@@ -123,7 +137,7 @@ app.post('/api/tasks', async (req) => {
     modelReason,
     onDone: b.onDone,
     dependsOn: b.dependsOn ?? null,
-    createdBy: 'user',
+    createdBy: b.createdBy === 'master' ? 'master' : 'user',
   });
   publishTask(task);
   const waiting = b.start ? startTask(task.id) : null;
@@ -260,7 +274,63 @@ app.post('/api/fs/choose', async (req, reply) => {
   if (!isLoopback(req.ip)) return reply.code(400).send({ error: 'The native folder dialog only works on this Mac' });
   return { path: await chooseFolderNative() };
 });
+app.get('/api/sessions', async (req, reply) => {
+  const cwd = String((req.query as any).cwd ?? '');
+  if (!cwd) return reply.code(400).send({ error: 'cwd is required' });
+  return listSessions(cwd);
+});
+app.post('/api/tasks/adopt', async (req, reply) => {
+  try {
+    return await adoptSession(body(req));
+  } catch (e) {
+    return fail(reply, e);
+  }
+});
+app.post('/api/plans', async (req, reply) => {
+  try {
+    return createPlan(body(req));
+  } catch (e) {
+    return fail(reply, e);
+  }
+});
+app.post('/api/tasks/:id/detach', async (req, reply) => {
+  try {
+    return await detachTask(id(req));
+  } catch (e) {
+    return fail(reply, e);
+  }
+});
+app.post('/api/tasks/:id/handback', async (req) => ({ result: handBack(id(req), !!body(req).carryOn) }));
+app.post('/api/tasks/:id/terminal', async (req, reply) => {
+  if (!isLoopback(req.ip)) return reply.code(400).send({ error: 'Opening a terminal only works on this Mac' });
+  try {
+    await openInTerminal(id(req));
+    return { ok: true };
+  } catch (e) {
+    return fail(reply, e);
+  }
+});
+app.get('/api/tasks/:id/commands', async (req) => taskCommands(id(req)));
+app.post('/api/tasks/:id/model', async (req) => ({ result: await setTaskModel(id(req), String(body(req).model)) }));
 app.post('/api/tasks/:id/fresh', async (req) => ({ result: await freshSession(id(req)) }));
+
+// ----- run + terminal
+const pid = (req: FastifyRequest) => Number((req.params as any).projectId);
+const procCall = async (reply: any, fn: () => unknown) => {
+  try {
+    return (await fn()) ?? { ok: true };
+  } catch (e) {
+    return fail(reply, e);
+  }
+};
+app.post('/api/projects/:projectId/run', (req, reply) => procCall(reply, () => startRun(pid(req))));
+app.post('/api/projects/:projectId/run/stop', (req, reply) => procCall(reply, () => stopRun(pid(req))));
+app.post('/api/projects/:projectId/run/restart', (req, reply) => procCall(reply, () => restartRun(pid(req))));
+app.put('/api/projects/:projectId/run/command', (req, reply) => procCall(reply, () => setRunCommand(pid(req), String(body(req).command ?? ''))));
+app.post('/api/projects/:projectId/terminal', (req, reply) => procCall(reply, () => runTerminal(pid(req), String(body(req).command ?? ''))));
+app.delete('/api/projects/:projectId/terminal', (req, reply) => procCall(reply, () => clearTerminal(pid(req))));
+app.post('/api/procs/:procId/input', (req, reply) => procCall(reply, () => sendInput(String((req.params as any).procId), String(body(req).text ?? ''))));
+app.post('/api/procs/:procId/stop', (req, reply) => procCall(reply, () => stopProc(String((req.params as any).procId))));
 
 // ----- search & digest
 app.get('/api/search', async (req) => repo.search(String((req.query as any).q ?? '')));

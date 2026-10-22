@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api.ts';
 import { pushToast, setState, useStore } from '../store.ts';
-import { ago, modelLabel, Rich, TurnsChip, usd, useNow, useProjectName } from '../ui.tsx';
+import { ago, modelLabel, Rich, TERMINAL_HINT, TurnsChip, usd, useNow, useProjectName } from '../ui.tsx';
 import type { Task } from '../../../shared/types.ts';
 
 export function DoneCard({ task }: { task: Task }) {
@@ -14,6 +14,7 @@ export function DoneCard({ task }: { task: Task }) {
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const failed = task.status === 'failed';
+  const idle = task.status === 'idle';
   const limit = useStore((s) => s.settings.turnWarning);
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -27,7 +28,7 @@ export function DoneCard({ task }: { task: Task }) {
 
   const submit = async () => {
     if (!text.trim()) return;
-    if (mode === 'changes') pushToast((await api.changes(task.id, text.trim())).result);
+    if (mode === 'changes') pushToast((await (idle ? api.message(task.id, text.trim()) : api.changes(task.id, text.trim()))).result);
     else {
       const t = await api.followUp(task.id, text.trim());
       pushToast(`Queued follow-up #${t.id}`);
@@ -47,7 +48,7 @@ export function DoneCard({ task }: { task: Task }) {
         <button className="min-w-0 flex-1 truncate text-left text-[14px] font-semibold hover:underline" onClick={() => setState({ drawer: task.id })} title="Open transcript">
           {task.title}
         </button>
-        <span className="shrink-0 text-[11.5px] text-faint">{ago(task.finishedAt, now)} ago</span>
+        <span className="shrink-0 text-[11.5px] text-faint">{task.finishedAt ? `${ago(task.finishedAt, now)} ago` : ''}</span>
       </header>
 
       <div className="mt-1.5 flex flex-wrap gap-1">
@@ -60,7 +61,12 @@ export function DoneCard({ task }: { task: Task }) {
         {failed && <span className="chip bg-danger/15 text-danger">Failed</span>}
       </div>
 
-      {task.outcome && <p className={`mt-2 text-[12.5px] font-medium ${failed ? 'text-danger' : 'text-signal'}`}>{task.outcome}</p>}
+      {idle && (
+        <p className="mt-2 text-[12.5px] font-medium text-run">
+          {task.flags.includes('plan') ? 'Planning: waiting for your reply in the Plan panel.' : 'Ready for more. It remembers everything so far; message it to keep going.'}
+        </p>
+      )}
+      {task.outcome && !idle && <p className={`mt-2 text-[12.5px] font-medium ${failed ? 'text-danger' : 'text-signal'}`}>{task.outcome}</p>}
 
       {task.summary ? (
         <>
@@ -109,12 +115,17 @@ export function DoneCard({ task }: { task: Task }) {
             Retry
           </button>
         )}
-        <button className="btn-ghost" onClick={() => setMode(mode === 'changes' ? null : 'changes')}>
-          Ask for changes
+        <button className={idle ? 'btn-run' : 'btn-ghost'} onClick={() => setMode(mode === 'changes' ? null : 'changes')}>
+          {idle ? 'Message' : 'Ask for changes'}
         </button>
         <button className="btn-ghost" onClick={() => setMode(mode === 'followup' ? null : 'followup')}>
           Follow-up
         </button>
+        {task.worktree && task.sessionId && (
+          <button className="btn-ghost" onClick={() => api.openTerminal(task.id)} title={TERMINAL_HINT}>
+            Terminal
+          </button>
+        )}
         {failed ? (
           <button className="btn-danger ml-auto" onClick={() => api.deleteTask(task.id)}>
             Delete
@@ -137,7 +148,7 @@ export function DoneCard({ task }: { task: Task }) {
           <input
             autoFocus
             className="field"
-            placeholder={mode === 'changes' ? 'What should change?' : 'Describe the follow-up task'}
+            placeholder={mode === 'changes' ? (idle ? `Tell #${task.id} what to do next` : 'What should change?') : 'Describe the follow-up task'}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => e.key === 'Escape' && setMode(null)}

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { api } from './api.ts';
-import { getState, pushToast, setState, setView, useStore } from './store.ts';
+import { getState, pushToast, setPlan, setState, setView, toggleSidebar, useStore } from './store.ts';
 import { parseSuggestion, useBoard } from './ui.tsx';
 import { TopBar } from './components/TopBar.tsx';
 import { Board } from './components/Board.tsx';
@@ -9,6 +9,11 @@ import { TranscriptDrawer } from './components/TranscriptDrawer.tsx';
 import { SettingsModal } from './components/Settings.tsx';
 import { DiffModal, DigestBanner, NewTaskModal, SearchModal } from './components/Modals.tsx';
 import { FolderPicker } from './components/FolderPicker.tsx';
+import { AgentsView } from './components/AgentsView.tsx';
+import { Sidebar } from './components/Sidebar.tsx';
+import { ConsolePanel } from './components/ConsolePanel.tsx';
+import { PlanPanel } from './components/PlanPanel.tsx';
+import { Maximized } from './components/Maximized.tsx';
 
 function useKeyboard(chatRef: React.RefObject<HTMLTextAreaElement>) {
   const board = useBoard();
@@ -20,7 +25,7 @@ function useKeyboard(chatRef: React.RefObject<HTMLTextAreaElement>) {
       const el = e.target as HTMLElement;
       if (el.closest('input, textarea, select, [contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
       const s = getState();
-      if (s.modal || s.drawer != null) return;
+      if (s.modal || s.drawer != null || s.maximized) return;
       const { order, needs } = boardRef.current;
       const sel = s.selected;
       const [kind, rawId] = sel?.split(':') ?? [];
@@ -48,6 +53,9 @@ function useKeyboard(chatRef: React.RefObject<HTMLTextAreaElement>) {
         '1': () => setView('board'),
         '2': () => setView('split'),
         '3': () => setView('master'),
+        '4': () => setView('agents'),
+        '[': () => toggleSidebar(),
+        P: () => setPlan({ planOpen: !getState().planOpen }),
         Escape: () => setState({ selected: null, replyTo: null }),
         a: () => {
           const sug = parseSuggestion(item?.suggestedAnswer ?? null);
@@ -68,7 +76,7 @@ function useKeyboard(chatRef: React.RefObject<HTMLTextAreaElement>) {
           const tid = task?.id ?? item?.taskId;
           if (tid != null) setState({ drawer: tid });
         },
-        '?': () => pushToast('j/k move, a accept suggestion, y/n allow/deny, r reply, s start, o open, c chat, / search, p pause all, N new task, 1/2/3 switch layout'),
+        '?': () => pushToast('j/k move, a accept suggestion, y/n allow/deny, r reply, s start, o open, c chat, / search, p pause all, N new task, 1/2/3/4 switch layout, [ collapse sidebar, P plan panel'),
       };
       const h = handlers[e.key];
       if (h) {
@@ -84,6 +92,9 @@ function useKeyboard(chatRef: React.RefObject<HTMLTextAreaElement>) {
 export function App() {
   const modal = useStore((s) => s.modal);
   const view = useStore((s) => s.view);
+  const sidebar = useStore((s) => s.sidebar);
+  const scope = useStore((s) => s.scope);
+  const planOpen = useStore((s) => s.planOpen);
   const toasts = useStore((s) => s.toasts);
   const needsCount = useBoard().needs.length;
   const chatRef = useRef<HTMLTextAreaElement>(null);
@@ -94,10 +105,21 @@ export function App() {
   }, [needsCount]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full">
+      <div className="hidden md:block">
+        <Sidebar collapsed={!sidebar} />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
       <TopBar />
-      {view === 'master' ? (
-        <MasterFull inputRef={chatRef} />
+      {view === 'master' || view === 'agents' ? (
+        <div className="flex min-h-0 flex-1">
+          {view === 'master' ? <MasterFull inputRef={chatRef} /> : <AgentsView />}
+          {planOpen && (
+            <div className="hidden w-[420px] shrink-0 lg:block">
+              <PlanPanel />
+            </div>
+          )}
+        </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
           <main className={`flex min-h-0 min-w-0 flex-1 flex-col ${view === 'board' ? 'pb-28' : ''}`}>
@@ -109,11 +131,19 @@ export function App() {
               <MasterPanel inputRef={chatRef} />
             </div>
           )}
+          {planOpen && (
+            <div className="h-[55vh] shrink-0 lg:h-auto lg:w-[380px] xl:w-[420px]">
+              <PlanPanel />
+            </div>
+          )}
         </div>
       )}
-      {view === 'board' && <MasterBar inputRef={chatRef} />}
+      {scope !== 'boss' && <ConsolePanel />}
+      {(view === 'board' || view === 'agents') && <MasterBar inputRef={chatRef} />}
+      </div>
 
       <TranscriptDrawer />
+      <Maximized />
       {modal === 'settings' && <SettingsModal />}
       {modal === 'search' && <SearchModal />}
       {modal === 'new' && <NewTaskModal />}

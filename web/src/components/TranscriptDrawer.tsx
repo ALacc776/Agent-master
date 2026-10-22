@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, loadEvents } from '../api.ts';
 import { pushToast, setState, useStore } from '../store.ts';
-import { modelLabel, Rich, usd, useTask } from '../ui.tsx';
-import type { TaskEvent } from '../../../shared/types.ts';
+import { ModelSelect, Rich, usd, useTask } from '../ui.tsx';
+import { CommandMenu, useCommandMenu } from './CommandMenu.tsx';
+import type { AgentCommand, TaskEvent } from '../../../shared/types.ts';
 
 const STYLE: Record<TaskEvent['type'], string> = {
   assistant: 'text-ink',
@@ -21,10 +22,14 @@ export function TranscriptDrawer() {
   const task = useTask(id);
   const [text, setText] = useState('');
   const [showBrief, setShowBrief] = useState(false);
+  const [commands, setCommands] = useState<AgentCommand[]>([]);
+  const menu = useCommandMenu(text, setText, commands);
   const scroller = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (id != null) void loadEvents(id);
+    if (id == null) return;
+    void loadEvents(id);
+    api.commands(id).then(setCommands).catch(() => {});
   }, [id]);
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
@@ -50,7 +55,7 @@ export function TranscriptDrawer() {
           </div>
           <div className="mt-1.5 flex flex-wrap gap-1">
             <span className="chip">{task.status.replace('_', ' ')}</span>
-            <span className="chip">{modelLabel(task.model)}</span>
+            <ModelSelect label={`Model for #${task.id}`} value={task.model} onChange={async (m) => pushToast((await api.setTaskModel(task.id, m)).result)} />
             <span className="chip">{usd(task.costUsd)}</span>
             {task.branch && <span className="chip font-mono">{task.branch}</span>}
             <button className="chip hover:text-ink" onClick={() => setShowBrief(!showBrief)}>
@@ -79,8 +84,17 @@ export function TranscriptDrawer() {
             setText('');
           }}
         >
-          <div className="flex gap-2">
-            <input className="field" placeholder={`Message agent #${task.id} directly`} value={text} onChange={(e) => setText(e.target.value)} />
+          <div className="relative flex gap-2">
+            <CommandMenu menu={menu} />
+            <input
+              className="field"
+              placeholder={task.status === 'accepted' ? `Continue with #${task.id} (it reopens with its memory), or / for commands` : `Message agent #${task.id}, or type / for commands`}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (menu.onKeyDown(e)) e.stopPropagation();
+              }}
+            />
             <button className="btn-run">Send</button>
           </div>
         </form>

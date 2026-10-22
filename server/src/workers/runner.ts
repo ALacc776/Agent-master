@@ -10,9 +10,17 @@ import { commitAll, createWorktree, diffStat, fullDiff } from './worktree.ts';
 import { review, summarize } from './summarize.ts';
 import { explainError } from '../llm.ts';
 import { notify } from '../notify.ts';
-import type { Task } from '../../../shared/types.ts';
+import type { AgentCommand, Task } from '../../../shared/types.ts';
+import { rememberCommands } from '../commands.ts';
 
-const workerRules = (task: Task, branch: string | null) => `
+const planRules = (task: Task) => `
+You are a planning partner for the developer (conversation #${task.id}), running in plan mode: you can read and explore the project but not change it.
+- Talk it through: answer questions, explore the code, suggest options and trade-offs, and ask clarifying questions when it matters (use AskUserQuestion for real choices).
+- Keep replies conversational and reasonably short unless asked for detail.
+- When the idea is clear, write a concrete plan (goal, approach, files to change, steps, how to verify) and present it with the ExitPlanMode tool. The developer will approve it or ask for changes.
+- After approval you'll implement the plan yourself in an isolated git worktree: commit your work, never push or merge, and finish with a short summary and a "Verify:" line.`;
+
+const workerRules = (task: Task, branch: string | null) => task.flags.includes('plan') ? planRules(task) : `
 You are worker agent #${task.id}, started by "Master", an orchestrator the developer chats with.
 ${branch ? `You work in an isolated git worktree on branch "${branch}". The current directory IS your copy of the project: any path in the brief that points at the project folder means the same path inside this directory.` : ''}
 Rules:
@@ -107,7 +115,8 @@ export class WorkerRunner {
       startedAt: task.startedAt ?? Date.now(),
       finishedAt: null,
       statusLine: resume ? 'Resuming…' : 'Starting…',
-      flags: task.flags.filter((f) => f === 'long'), // don't re-warn about a long session the developer chose to keep
+      // Keep: "long" (don't re-warn after "keep going") and the plan markers.
+      flags: task.flags.filter((f) => ['long', 'plan', 'planned'].includes(f)),
       lastEventAt: Date.now(),
     });
     closeTaskInbox(task.id, ['stalled', 'loop', 'failed']);
@@ -119,7 +128,8 @@ export class WorkerRunner {
       options: {
         cwd: this.cwd,
         model: task.model,
-        permissionMode: 'default',
+        // Plan conversations run in Claude Code's plan mode: read-only until the developer approves a plan.
+        permissionMode: task.flags.includes('plan') ? 'plan' : 'default',
         canUseTool: createGate(task.id, this.cwd, () => this.syncPendingStatus()),
         systemPrompt: { type: 'preset', preset: 'claude_code', append: workerRules(task, task.branch) },
         settingSources: ['project', 'local'],
@@ -157,6 +167,8 @@ export class WorkerRunner {
     for await (const msg of this.q!) {
       if (msg.type === 'system' && msg.subtype === 'init') {
         updateTask(this.taskId, { sessionId: msg.session_id });
+        this.terminalOnly = (msg as any).terminal_slash_commands ?? [];
+        void this.loadCommands();
         continue;
       }
       if (msg.type === 'assistant') {
@@ -238,6 +250,23 @@ export class WorkerRunner {
     return true;
   }
 
+  private terminalOnly: string[] = [];
+  commands: AgentCommand[] | null = null;
+
+  private async loadCommands() {
+    try {
+      const list = await this.q!.supportedCommands();
+      this.commands = rememberCommands(list.map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint })), this.terminalOnly);
+    } catch {
+      /* older CLI: keep the saved list */
+    }
+  }
+
+  /** Switch the model of the live session; it applies from the next turn. */
+  async setModel(model: string) {
+    await this.q?.setModel(model);
+  }
+
   stop(reason: 'stopped' | 'paused') {
     this.stopReason = reason;
     denyAllPending(this.taskId);
@@ -257,7 +286,7 @@ export class WorkerRunner {
         status: reason === 'paused' ? 'queued' : 'stopped',
         autoStart: reason === 'paused' ? task.autoStart : false,
         statusLine: reason === 'paused' ? 'Paused' : 'Stopped',
-        flags: reason === 'paused' ? ['paused'] : [],
+        flags: [...(reason === 'paused' ? ['paused'] : []), ...task.flags.filter((f) => ['plan', 'planned'].includes(f))],
       });
       addEvent(task.id, 'system', reason === 'paused' ? 'Paused' : 'Stopped by you');
       return this.onExit(this, reason);
@@ -265,7 +294,7 @@ export class WorkerRunner {
 
     if (reason === 'failed') {
       error = explainError(error ?? 'Failed');
-      updateTask(task.id, { status: 'failed', statusLine: 'Failed', finishedAt: Date.now(), flags: [] });
+      updateTask(task.id, { status: 'failed', statusLine: 'Failed', finishedAt: Date.now(), flags: task.flags.filter((f) => ['plan', 'planned'].includes(f)) });
       addEvent(task.id, 'error', error ?? 'Failed');
       addInbox({ taskId: task.id, kind: 'failed', title: `failed: ${error.split('\n')[0].replace(/^Claude Code returned an error result: /, '').slice(0, 140)}`, detail: { message: error.replace(/^Claude Code returned an error result: /, '') } });
       notify(`Agent #${task.id} failed`, task.title);
@@ -293,7 +322,7 @@ export class WorkerRunner {
       diffStat: stat || null,
       reviewVerdict: verdict,
       finishedAt: Date.now(),
-      flags: [],
+      flags: this.task.flags.filter((f) => f === 'planned'),
     });
     closeTaskInbox(task.id, ['stalled', 'loop', 'context']);
     // The manager decides where finished work goes (merge, PR or Review).

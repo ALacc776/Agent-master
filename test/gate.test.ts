@@ -14,7 +14,10 @@ repo.updateSettings({ autoMode: false }); // these tests cover the ask-first beh
 const cwd = '/repo/.master-worktrees/1-x';
 const signal = new AbortController().signal;
 const task = repo.createTask({ title: 't', brief: '', projectId: null, model: 'm', createdBy: 'user' });
-const gate = createGate(task.id, cwd, () => {});
+let pendingSeen = 0;
+const gate = createGate(task.id, cwd, () => {
+  pendingSeen = Math.max(pendingSeen, pendingCount(task.id));
+});
 const tick = () => new Promise((r) => setTimeout(r, 10));
 
 test('safe calls pass straight through', async () => {
@@ -30,6 +33,7 @@ test('git push waits on the developer, only that worker blocks, remembered deny 
   assert.equal(item.kind, 'permission');
   assert.equal(item.taskId, task.id);
   assert.equal(pendingCount(task.id), 1);
+  assert.equal(pendingSeen, 1, 'status callback sees the pending prompt');
 
   answerInbox(item.id, 'deny', true);
   const r = await pending;
@@ -99,6 +103,18 @@ test('auto mode lets routine-but-unlisted commands through and still asks for pu
     assert.ok(item, 'publishing still reaches the developer');
     answerInbox(item!.id, 'deny');
     await pending;
+  } finally {
+    repo.updateSettings({ autoMode: false });
+  }
+});
+
+test('auto mode refuses edits outside the working folder instead of asking', async () => {
+  repo.updateSettings({ autoMode: true });
+  try {
+    const r = await gate('Write', { file_path: '/elsewhere/file.txt', content: 'x' }, { signal } as any);
+    assert.equal(r.behavior, 'deny');
+    assert.match((r as any).message, /outside your working directory/);
+    assert.equal(repo.openInbox().filter((i) => i.kind === 'permission').length, 0);
   } finally {
     repo.updateSettings({ autoMode: false });
   }

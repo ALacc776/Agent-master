@@ -1,6 +1,6 @@
 import { api } from '../api.ts';
 import { pushToast, setState, useStore } from '../store.ts';
-import { ago, modelLabel, TurnsChip, usd, useNow, useProjectName } from '../ui.tsx';
+import { ago, ModelSelect, TERMINAL_HINT, TurnsChip, usd, useNow, useProjectName } from '../ui.tsx';
 import type { Task } from '../../../shared/types.ts';
 
 const FLAG_TEXT: Record<string, string> = { stalled: 'No activity', looping: 'Looping?', collision: 'Same files as another agent' };
@@ -34,13 +34,12 @@ export function RunningCard({ task }: { task: Task }) {
 
       <div className="mt-2 flex flex-wrap items-center gap-1">
         {project && <span className="chip">{project}</span>}
-        <span className="chip" title={task.modelReason ?? undefined}>
-          {modelLabel(task.model)}
-        </span>
+        <ModelSelect label={`Model for #${task.id}${task.modelReason ? ` (${task.modelReason})` : ''}`} value={task.model} onChange={async (m) => pushToast((await api.setTaskModel(task.id, m)).result)} />
         <TurnsChip turns={task.turns} limit={limit} />
         <span className="chip tabular-nums">{usd(task.costUsd)}</span>
         {task.filesTouched.length > 0 && <span className="chip">{task.filesTouched.length} files</span>}
-        {task.onDone !== 'merge' && <span className="chip">{task.onDone === 'pr' ? 'Opens a PR' : 'You review'}</span>}
+        {task.flags.includes('plan') && <span className="chip text-run">Planning</span>}
+        {task.onDone !== 'merge' && <span className="chip">{task.onDone === 'pr' ? 'Opens a PR' : task.onDone === 'keep' ? 'Stays open' : 'You review'}</span>}
         {task.flags
           .filter((f) => FLAG_TEXT[f])
           .map((f) => (
@@ -62,6 +61,11 @@ export function RunningCard({ task }: { task: Task }) {
         <button className="btn-ghost" onClick={() => api.pause(task.id)}>
           Pause
         </button>
+        {task.sessionId && (
+          <button className="btn-ghost" onClick={() => api.openTerminal(task.id)} title={TERMINAL_HINT}>
+            Terminal
+          </button>
+        )}
         <button className="btn-danger ml-auto" onClick={() => api.stop(task.id)}>
           Stop
         </button>

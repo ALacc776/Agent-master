@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.ts';
-import { pushToast, setBuildProject, setState } from '../store.ts';
+import { pushToast, setBuildProject, setScope, setState } from '../store.ts';
 import { Modal } from '../ui.tsx';
 import type { DirListing } from '../../../shared/types.ts';
 
 // Pick a folder to build in: Finder dialog on this Mac, or browse folders right here.
-export function FolderPicker({ returnTo }: { returnTo: 'settings' | 'chat' }) {
+export function FolderPicker({ returnTo }: { returnTo: 'settings' | 'chat' | 'sidebar' }) {
   const [listing, setListing] = useState<DirListing | null>(null);
   const [pathInput, setPathInput] = useState('');
   const [finderBusy, setFinderBusy] = useState(false);
@@ -28,6 +28,7 @@ export function FolderPicker({ returnTo }: { returnTo: 'settings' | 'chat' }) {
   const use = async (path: string) => {
     const project = await api.addProject(path);
     setBuildProject(project.id);
+    if (returnTo === 'sidebar') setScope(String(project.id)); // open the new project's master
     pushToast(`Building in ${project.name}${project.isGit ? '' : ' (not a git repo: agents work in place, one at a time)'}`);
     close();
   };

@@ -43,6 +43,17 @@ export async function createWorktree(projectPath: string, taskId: number, title:
   return { path, branch, base };
 }
 
+/** Bring back a finished task's worktree at its original path (so its Claude session still resolves). */
+export async function reopenWorktree(projectPath: string, taskId: number, title: string, branch: string, base: string) {
+  const path = join(projectPath, '.master-worktrees', `${taskId}-${slugify(title)}`);
+  if (existsSync(path)) return { path, branch, base, fresh: false };
+  const branchExists = await git(projectPath, 'rev-parse', '--verify', `refs/heads/${branch}`).then(() => true, () => false);
+  // Dismissed tasks still have their branch; merged ones start a new branch from what they merged into.
+  if (branchExists) await git(projectPath, 'worktree', 'add', path, branch);
+  else await git(projectPath, 'worktree', 'add', '-b', branch, path, base);
+  return { path, branch, base, fresh: !branchExists };
+}
+
 export async function commitAll(worktree: string, message: string): Promise<boolean> {
   await git(worktree, 'add', '-A');
   const status = await git(worktree, 'status', '--porcelain');
@@ -68,6 +79,8 @@ export async function fullDiff(worktree: string, base: string): Promise<string> 
 }
 
 export async function removeWorktree(projectPath: string, worktree: string, branch?: string | null, deleteBranch = false) {
+  // Only ever remove Master's own worktrees, never a project folder (adopted sessions run in place).
+  if (!worktree.includes('/.master-worktrees/')) return;
   try {
     await git(projectPath, 'worktree', 'remove', '--force', worktree);
   } catch {

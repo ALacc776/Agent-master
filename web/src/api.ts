@@ -1,5 +1,5 @@
 import { apply, pushToast, setState } from './store.ts';
-import type { DirListing, OnDone, Project, SearchHit, Settings, Task, TaskEvent } from '../../shared/types.ts';
+import type { AgentCommand, DirListing, OnDone, Project, SearchHit, Settings, Task, TaskEvent } from '../../shared/types.ts';
 
 // Access token for phone/LAN use: pass ?token=… once, it's remembered.
 function token(): string {
@@ -20,15 +20,17 @@ async function call<T = any>(method: string, path: string, body?: unknown): Prom
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    pushToast(data.error ?? `Request failed (${res.status})`);
+    // An unknown API route means the dashboard is newer than the running server.
+    const stale = res.status === 404 && data.error === 'Not found';
+    pushToast(stale ? 'The server is older than this page. Restart it (Ctrl+C, then npm start) to use this.' : data.error ?? `Request failed (${res.status})`);
     throw new Error(data.error);
   }
   return data as T;
 }
 
 export const api = {
-  sendMaster: (text: string, projectId: number | null, onDone: OnDone) => call('POST', '/api/master/message', { text, projectId, onDone }),
-  resetMaster: () => call('POST', '/api/master/reset'),
+  sendMaster: (text: string, scope: string, projectId: number | null, onDone: OnDone, model: string) => call('POST', '/api/master/message', { text, scope, projectId, onDone, model }),
+  resetMaster: (scope: string) => call('POST', '/api/master/reset', { scope }),
   createTask: (t: { title: string; brief: string; projectId: number | null; model: string; onDone?: OnDone; start?: boolean; dependsOn?: number | null }) =>
     call<{ task: Task; waiting: string | null }>('POST', '/api/tasks', t),
   updateTask: (id: number, patch: Partial<Task>) => call('PATCH', `/api/tasks/${id}`, patch),
@@ -53,7 +55,21 @@ export const api = {
   listDirs: (path: string) => call<DirListing>('GET', `/api/fs/list?path=${encodeURIComponent(path)}`),
   chooseFolder: () => call<{ path: string | null }>('POST', '/api/fs/choose'),
   fresh: (id: number) => call<{ result: string }>('POST', `/api/tasks/${id}/fresh`),
+  openTerminal: (id: number) => call('POST', `/api/tasks/${id}/terminal`),
+  commands: (id: number) => call<AgentCommand[]>('GET', `/api/tasks/${id}/commands`),
+  setTaskModel: (id: number, model: string) => call<{ result: string }>('POST', `/api/tasks/${id}/model`, { model }),
+  setMasterModel: (model: string, scope: string) => call('POST', '/api/master/model', { model, scope }),
+  handBack: (id: number, carryOn: boolean) => call<{ result: string }>('POST', `/api/tasks/${id}/handback`, { carryOn }),
   removeProject: (id: number) => call('DELETE', `/api/projects/${id}`),
+  createPlan: (p: { projectId: number; text: string; model?: string; onDone?: OnDone }) => call<Task>('POST', '/api/plans', p),
+  run: (projectId: number) => call('POST', `/api/projects/${projectId}/run`),
+  stopRun: (projectId: number) => call('POST', `/api/projects/${projectId}/run/stop`),
+  restartRun: (projectId: number) => call('POST', `/api/projects/${projectId}/run/restart`),
+  setRunCommand: (projectId: number, command: string) => call('PUT', `/api/projects/${projectId}/run/command`, { command }),
+  terminal: (projectId: number, command: string) => call('POST', `/api/projects/${projectId}/terminal`, { command }),
+  clearTerminal: (projectId: number) => call('DELETE', `/api/projects/${projectId}/terminal`),
+  procInput: (procId: string, text: string) => call('POST', `/api/procs/${procId}/input`, { text }),
+  stopProc: (procId: string) => call('POST', `/api/procs/${procId}/stop`),
   removeRule: (id: number) => call('DELETE', `/api/rules/${id}`),
   addPreference: (text: string) => call('POST', '/api/preferences', { text }),
   removePreference: (id: number) => call('DELETE', `/api/preferences/${id}`),
